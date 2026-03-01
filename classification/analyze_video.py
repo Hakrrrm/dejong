@@ -20,7 +20,11 @@ from statistics import mean
 
 import cv2
 import yaml
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:  # optional in local-only runtime
+    def load_dotenv(*_args, **_kwargs):
+        return False
 from ultralytics import YOLO
 
 from classification.src.openai_reasoner.client import get_openai_client

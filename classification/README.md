@@ -49,6 +49,7 @@ Copy `.env.example` to `.env` and fill your key:
 
 ```bash
 cp .env.example .env
+# if dotfiles are hidden in your UI: cp env.example .env
 ```
 
 ```env
@@ -126,3 +127,14 @@ In each interval JSON:
 - if OpenAI skipped: `final_score = local_score`.
 - `decision_confidence` is separate from detection confidence and measures decisiveness/consistency of signals.
 - scenario rank always assigned: `Emergency`, `Hazard`, or `Elevated Risk` with hysteresis thresholds from config.
+
+
+## Troubleshooting
+
+If you hit `ModuleNotFoundError: No module named 'dotenv'`:
+
+```bash
+pip install -r requirements.txt
+```
+
+`python-dotenv` is used for `.env` loading. If unavailable, the analyzer now falls back to local-only environment behavior, but full install is recommended.

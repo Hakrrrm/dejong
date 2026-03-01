@@ -15,12 +15,16 @@ pip install -r requirements.txt
 
 ## OpenAI setup (optional)
 
+> If `.env.example` is not visible in your GitHub file list, use `env.example` (same content).
+
+
 OpenAI is optional and only used for uncertain intervals.
 
 1. Copy env template:
 
 ```bash
 cp .env.example .env
+# if dotfiles are hidden in your UI: cp env.example .env
 ```
 
 2. Set your key in `.env`:
@@ -96,3 +100,14 @@ Training docs stay in:
 Configured in `classification/configs/scoring.yaml`:
 - normal uncertain intervals use `gpt-4o-mini`
 - higher-risk uncertain intervals can switch to `gpt-4o` based on `high_risk_switch_threshold`
+
+
+## Troubleshooting
+
+If you see `ModuleNotFoundError: No module named 'dotenv'`, install dependencies first:
+
+```bash
+pip install -r requirements.txt
+```
+
+The analyzer can still run in local-only mode without OpenAI key integration if `python-dotenv` is missing, but installing requirements is recommended.
