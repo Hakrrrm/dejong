@@ -1,4 +1,4 @@
-"""Fine-tune a YOLO11 model for 3-class fire/smoke/control-fire detection."""
+"""Fine-tune a YOLO11 model for 3-class controlled_fire/fire/smoke detection."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ DEFAULT_MODEL = "yolo11n.pt"
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Train a 3-class fire detector (fire, smoke, controlled_fire) "
+            "Train a 3-class fire detector (controlled_fire, fire, smoke) "
             "from a YOLO11 checkpoint."
         )
     )

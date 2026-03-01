@@ -1,14 +1,14 @@
 # 3-Class Fire/Smoke Detection (YOLO11)
 
-This repository contains a lightweight training pipeline to adapt a YOLO11 fire/smoke detector to **3 classes**:
+This project adapts the original fire/smoke detector to **3 classes**:
 
+- `controlled_fire`
 - `fire`
 - `smoke`
-- `controlled_fire`
 
-It is designed for small datasets (like your ~180 originals augmented to ~500 images) by using transfer learning and conservative augmentation.
+The defaults are tuned for small datasets (~500 augmented images) using transfer learning.
 
-## 1) Install
+## Install
 
 ```bash
 python -m venv .venv
@@ -16,9 +16,11 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## 2) Prepare dataset in YOLO format
+## What is left for you to do (from your YOLOv8 dataset)
 
-Use this structure:
+If your dataset is already in YOLO format, you only need to do these steps:
+
+1. Put your dataset in this structure:
 
 ```text
 dataset_root/
@@ -32,21 +34,22 @@ dataset_root/
     test/      # optional
 ```
 
-Each `labels/*.txt` file uses YOLO annotations:
+2. Ensure class IDs are exactly:
+   - `0 = controlled_fire`
+   - `1 = fire`
+   - `2 = smoke`
 
-```text
-<class_id> <x_center> <y_center> <width> <height>
+3. Edit `configs/dataset_3class.yaml` and set `path:` to your `dataset_root`.
+
+4. Run dataset validation:
+
+```bash
+python src/check_dataset.py --dataset-root /absolute/path/to/dataset_root
 ```
 
-Class IDs for this project must be:
+5. Start training.
 
-- `0 = fire`
-- `1 = smoke`
-- `2 = controlled_fire`
-
-Edit `configs/dataset_3class.yaml` with your real dataset path.
-
-## 3) Train
+## Train (new 3-class model)
 
 ```bash
 python src/train_three_class.py \
@@ -57,33 +60,52 @@ python src/train_three_class.py \
   --imgsz 640
 ```
 
-### Why these defaults for a small dataset?
+Outputs are saved to:
 
-- Starts from pretrained YOLO11 weights (transfer learning).
-- Freezes early layers (`--freeze 10`) to reduce overfitting.
-- Uses `AdamW` with lower LR and early stopping (`--patience 25`).
-- Keeps augmentation moderate (mixup, color jitter, small geometric changes).
+```text
+runs/fire3class/yolo11n_transfer/
+```
 
-If overfitting appears, try:
+Best model path:
 
-- smaller model (`yolo11n.pt`),
-- stronger freeze (e.g. `--freeze 15`),
-- fewer epochs or higher patience,
-- cleaner validation split.
+```text
+runs/fire3class/yolo11n_transfer/weights/best.pt
+```
 
-## 4) Inference
+## How to call the tuned model later
+
+### 1) Batch/file inference (save predictions)
 
 ```bash
 python src/predict_three_class.py \
   --weights runs/fire3class/yolo11n_transfer/weights/best.pt \
-  --source /path/to/image_or_video \
+  --source /path/to/image_or_video_or_folder \
   --conf 0.25
 ```
 
-Predictions are saved under `runs/detect/` by default.
+### 2) Realtime mode (close to original repo style)
 
-## 5) Suggested next improvements
+```bash
+python src/realtime_infer.py \
+  --weights runs/fire3class/yolo11n_transfer/weights/best.pt \
+  --source 0 \
+  --conf 0.25
+```
 
-- Add hard-negative samples (non-fire scenes that resemble smoke/flames).
-- Keep `controlled_fire` examples diverse (campfires, stoves, industrial flares, etc.).
-- Run k-fold cross-validation due to limited data volume.
+- `--source 0` = default webcam.
+- You can also pass a video path or RTSP/HTTP stream URL.
+
+### 3) Ultralytics CLI (if you prefer original-style command usage)
+
+```bash
+yolo predict \
+  model=runs/fire3class/yolo11n_transfer/weights/best.pt \
+  source=/path/to/image_or_video_or_folder \
+  conf=0.25
+```
+
+## Notes for small datasets
+
+- Keep validation clean and representative.
+- If overfitting appears, increase `--freeze` (e.g., 15), reduce epochs, or switch to `yolo11n.pt` if using larger checkpoints.
+- Improve class balance, especially for underrepresented classes (especially `controlled_fire`).
