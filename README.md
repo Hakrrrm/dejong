@@ -8,7 +8,7 @@ This project adapts the original fire/smoke detector to **3 classes**:
 
 The defaults are tuned for small datasets (~500 augmented images) using transfer learning.
 
-## Install
+## 1) Install
 
 ```bash
 python -m venv .venv
@@ -16,11 +16,34 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## What is left for you to do (from your YOLOv8 dataset)
+## 2) What to do with your current `.pt` model (important)
 
-If your dataset is already in YOLO format, you only need to do these steps:
+If you already have a model you want to improve (for example from the original repo), do this:
 
-1. Put your dataset in this structure:
+1. Download/copy that model file to your machine (example: `/home/you/models/current_fire_model.pt`).
+2. Keep that file path ready.
+3. Pass that path to `--model` during training.
+
+### Example
+
+```bash
+python src/train_three_class.py \
+  --data /absolute/path/to/your/data.yaml \
+  --model /home/you/models/current_fire_model.pt \
+  --epochs 120 \
+  --batch 8 \
+  --imgsz 640
+```
+
+That command means: **start from your existing `.pt` weights** and fine-tune to the new 3-class dataset.
+
+> If you do not have a custom `.pt` yet, use `--model yolo11n.pt` and Ultralytics will download it automatically.
+
+## 3) Prepare dataset
+
+You can use either of these dataset styles:
+
+### Option A: This repo template style
 
 ```text
 dataset_root/
@@ -34,30 +57,42 @@ dataset_root/
     test/      # optional
 ```
 
-2. Ensure class IDs are exactly:
-   - `0 = controlled_fire`
-   - `1 = fire`
-   - `2 = smoke`
+Then edit `configs/dataset_3class.yaml`:
 
-3. Edit `configs/dataset_3class.yaml` and set `path:` to your `dataset_root`.
+- set `path:` to your `dataset_root`
+- keep classes in this exact order:
+  - `0 = controlled_fire`
+  - `1 = fire`
+  - `2 = smoke`
 
-4. Run dataset validation:
+### Option B: Roboflow exported YAML
+
+If your `data.yaml` already has paths like `../train/images`, `../valid/images`, etc., you can use it directly with `--data /path/to/data.yaml`.
+
+## 4) Validate dataset (recommended)
 
 ```bash
 python src/check_dataset.py --dataset-root /absolute/path/to/dataset_root
 ```
 
-5. Start training.
+If your dataset uses a different folder structure (e.g., Roboflow with `train/valid/test`), you can skip this script and rely on your `data.yaml` paths directly.
 
-## Train (new 3-class model)
+## 5) Train (3-class fine-tuning)
+
+### Using your existing `.pt` (recommended for your case)
+
+```bash
+python src/train_three_class.py \
+  --data /absolute/path/to/your/data.yaml \
+  --model /absolute/path/to/your/current_fire_model.pt
+```
+
+### Using default base model
 
 ```bash
 python src/train_three_class.py \
   --data configs/dataset_3class.yaml \
-  --model yolo11n.pt \
-  --epochs 120 \
-  --batch 8 \
-  --imgsz 640
+  --model yolo11n.pt
 ```
 
 Outputs are saved to:
@@ -72,9 +107,11 @@ Best model path:
 runs/fire3class/yolo11n_transfer/weights/best.pt
 ```
 
-## How to call the tuned model later
+## 6) Use the tuned model later (inference only)
 
-### 1) Batch/file inference (save predictions)
+Once training is done, copy/use `best.pt` anywhere you like.
+
+### Batch/file inference (save predictions)
 
 ```bash
 python src/predict_three_class.py \
@@ -83,7 +120,7 @@ python src/predict_three_class.py \
   --conf 0.25
 ```
 
-### 2) Realtime mode (close to original repo style)
+### Realtime mode (webcam/video/stream)
 
 ```bash
 python src/realtime_infer.py \
@@ -93,9 +130,9 @@ python src/realtime_infer.py \
 ```
 
 - `--source 0` = default webcam.
-- You can also pass a video path or RTSP/HTTP stream URL.
+- You can pass a video file path or RTSP/HTTP stream URL instead.
 
-### 3) Ultralytics CLI (if you prefer original-style command usage)
+### Ultralytics CLI (alternative)
 
 ```bash
 yolo predict \
@@ -104,8 +141,17 @@ yolo predict \
   conf=0.25
 ```
 
+## 7) Quick beginner checklist
+
+- [ ] I installed dependencies.
+- [ ] I have my dataset YAML path.
+- [ ] My class order is `controlled_fire`, `fire`, `smoke`.
+- [ ] I downloaded my current `.pt` model and know its full path.
+- [ ] I ran training with `--model /path/to/current_model.pt`.
+- [ ] I got `best.pt` and can run `predict` or `realtime_infer`.
+
 ## Notes for small datasets
 
 - Keep validation clean and representative.
-- If overfitting appears, increase `--freeze` (e.g., 15), reduce epochs, or switch to `yolo11n.pt` if using larger checkpoints.
+- If overfitting appears, increase `--freeze` (e.g., 15), reduce epochs, or use a smaller base checkpoint.
 - Improve class balance, especially for underrepresented classes (especially `controlled_fire`).
