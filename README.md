@@ -84,9 +84,10 @@ The JSON contains:
 - `summary.video_behavior_signals.fire_spread_score`: range of normalized fire bbox area over the video.
 - `summary.aggregate_relative_confidence`: normalized final confidence for `controlled_fire`, `fire`, and `smoke`.
 - `summary.top_fire_frame`: path, timestamp, and computed fire-frame score for the highest-risk sampled frame.
-- `scoring_formula`: explicit formulas used for aggregate confidence and frame-level fire score.
-- `interval_outputs`: list of per-interval JSON files written during run, including top fire-frame metadata for each interval.
-- `detections`: per-detection rows with timestamp, class, confidence, bbox, and area ratio.
+- `interval_outputs`: list of per-interval JSON/JPG output pairs with shared base names (easy matching) + interval aggregate confidence and top-frame metadata.
+- `summary.risk_numbers`: numeric risk features (`dangerous_fire_index`, `fire_vs_controlled_gap`, `fire_to_controlled_ratio`, normalized spread/flicker) for downstream confidence logic.
+
+Note: JSON output is intentionally compact and aggregate-only (no per-box timestamp dump).
 
 These outputs are ready to feed into downstream contextual assessment logic (including OpenAI API decision layers).
 

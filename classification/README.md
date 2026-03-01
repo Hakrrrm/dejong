@@ -7,12 +7,12 @@ This folder contains runtime-only video analysis tools.
 - `analyze_video.py`
   - Uses `classification_model.pt` by default.
   - Analyzes video in ON/OFF windows (default: 10s ON / 10s OFF).
-  - Computes per-class metrics + temporal fire behavior signals.
+  - Writes compact aggregate JSON only (no per-box timestamp dump).
   - Saves:
     - one overall JSON (`classification/video_metrics.json` by default)
-    - one JSON per active interval (`classification/interval_metrics/` by default)
-    - one highest fire-score frame image per interval (`classification/interval_top_fire_frames/` by default)
-    - one highest fire-score frame image across the full run (`classification/top_fire_frame.jpg` by default)
+    - one compact JSON per active interval (`classification/interval_metrics/`)
+    - one highest fire-score frame JPG per interval (`classification/interval_top_fire_frames/`)
+    - one highest fire-score frame JPG across the full run (`classification/top_fire_frame.jpg`)
 
 ## Test with a video
 
@@ -30,66 +30,76 @@ python classification/analyze_video.py \
   --top-fire-frame-out classification/top_fire_frame.jpg
 ```
 
-After run:
+## Clear interval labeling and JSON/JPG matching
 
-- Open `classification/video_metrics.json` for run-wide aggregates.
-- Open `classification/interval_metrics/incident_interval_XXXX_*.json` for each active clip.
-- Open `classification/interval_top_fire_frames/incident_interval_XXXX_*_top_fire.jpg` for each interval's top fire-score frame.
-- Open `classification/top_fire_frame.jpg` for the highest computed fire-score frame across the full run.
+For each interval, a shared base name is used in both files:
 
-## Interval labeling
+- JSON: `classification/interval_metrics/incident_interval_0001_000000s_000010s.json`
+- JPG: `classification/interval_top_fire_frames/incident_interval_0001_000000s_000010s_top_fire.jpg`
 
-Intervals are labeled from incident start time:
+This guarantees that each interval JSON maps clearly to its interval top-fire frame image.
 
-- first analyzed 10s clip => `interval_0001` (`000000s` to `000010s`)
-- second analyzed 10s clip => `interval_0002` (`000020s` to `000030s`, with default 10s break)
-- third analyzed 10s clip => `interval_0003`, and so on.
+Each interval JSON also contains:
 
-## Aggregate relative confidence math
+- `interval.label`
+- `interval.base_name`
+- `summary.top_fire_frame.path`
 
-Per interval (and also overall), final confidence is calculated for:
+## JSON content policy (compact)
 
-- `controlled_fire`
-- `fire`
-- `smoke`
+### Overall JSON
 
-### Inputs
+Contains only:
 
-- `mean_controlled`, `mean_fire`, `mean_smoke` = mean detection confidence by class.
-- `fire_spread_score` = `max(fire_bbox_area_ratio) - min(fire_bbox_area_ratio)`.
-- `fire_flicker_score` = mean absolute delta between consecutive fire confidences.
+- `input`
+- `sampling`
+- `summary` (aggregate run metrics)
+- `interval_outputs` (pointers to each interval JSON/JPG + interval aggregate confidence)
 
-### Raw scores
+### Per-interval JSON
 
-- `controlled_raw = 0.85*mean_controlled + 0.10*(1-clamp(fire_spread*3)) + 0.05*(1-clamp(fire_flicker*4))`
-- `fire_raw = (0.70*mean_fire + 0.20*clamp(fire_spread*3) + 0.10*clamp(fire_flicker*4))*(1-0.25*mean_controlled)`
-- `smoke_raw = 0.85*mean_smoke + 0.15*mean_fire`
+Contains only:
 
-### Normalization
+- `interval` metadata (label/index/timing/base_name)
+- `sampling` config
+- `summary` aggregate metrics:
+  - counts, mean/max confidence
+  - flicker/spread
+  - aggregate relative confidence
+  - interval top-fire-frame info
 
+No per-box detection arrays are written.
+
+## Rebalanced confidence math
+
+The confidence model is rebalanced so real fires are less likely to be over-labeled as `controlled_fire`.
+
+- `controlled_raw = (0.45*mean_controlled + 0.15*(1-spread_n) + 0.10*(1-flicker_n) + 0.30*(1-mean_fire))*(1-0.35*mean_smoke)`
+- `fire_raw = (0.60*mean_fire + 0.20*spread_n + 0.15*flicker_n + 0.05*mean_smoke)*(1-0.15*mean_controlled)`
+- `smoke_raw = 0.75*mean_smoke + 0.20*mean_fire + 0.05*flicker_n`
 - `final[class] = raw[class] / (controlled_raw + fire_raw + smoke_raw)`
 
-These values are saved under `summary.aggregate_relative_confidence`.
+with:
+
+- `spread_n = clamp(fire_spread_score * 3)`
+- `flicker_n = clamp(fire_flicker_score * 4)`
 
 ## Frame-level fire score math
 
-For each sampled frame, fire severity score is:
-
-- `fire_frame_score = max(fire_conf*(0.6 + 0.4*clamp(area_ratio*5))) - 0.35*max(controlled_fire_conf)`
-
-The script saves the frame with highest `fire_frame_score` and reports:
-
-- `summary.top_fire_frame.path`
-- `summary.top_fire_frame.timestamp_s`
-- `summary.top_fire_frame.fire_frame_score`
+- `fire_frame_score = max(fire_conf*(0.7 + 0.3*clamp(area_ratio*5))) - 0.20*max(controlled_fire_conf)`
 
 
-## Per-interval top fire frame in JSON
+## Where to read interval aggregate scores
 
-Each interval JSON now includes:
+In each interval JSON, the key values are in:
 
-- `summary.top_fire_frame.path`
-- `summary.top_fire_frame.timestamp_s`
-- `summary.top_fire_frame.fire_frame_score`
+- `summary.aggregate_relative_confidence.controlled_fire`
+- `summary.aggregate_relative_confidence.fire`
+- `summary.aggregate_relative_confidence.smoke`
+- `summary.risk_numbers.dangerous_fire_index`
+- `summary.risk_numbers.fire_vs_controlled_gap`
+- `summary.risk_numbers.fire_to_controlled_ratio`
 
-The overall JSON (`video_metrics.json`) also includes these values in `interval_outputs[]`.
+These are the intended numeric outputs for determining risky, spreading fire vs controlled fire.
+
+Note: `scoring_formula` was intentionally removed from JSON to keep output compact and calculation-focused; formulas remain documented in this README.
