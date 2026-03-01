@@ -1,22 +1,39 @@
-"""Interval-based video fire analysis using a trained YOLO classification model.
+"""Interval-based video fire analysis with optional OpenAI context tie-breaker.
 
-Outputs are intentionally compact:
-- one overall run JSON
-- one compact JSON per active interval
-- one top-fire frame JPG per interval
-- one global top-fire frame JPG
+Outputs:
+- overall compact JSON (--json-out)
+- per-interval compact JSON (--interval-json-dir)
+- one top-fire JPG per interval (--interval-top-frame-dir)
+- one global top-fire JPG (--top-fire-frame-out)
+- consolidated timeline JSON (--timeline-out)
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean
 
 import cv2
+import yaml
+from dotenv import load_dotenv
 from ultralytics import YOLO
+
+from classification.src.openai_reasoner.client import get_openai_client
+from classification.src.openai_reasoner.reasoner import reason_with_openai
+from classification.src.scoring import (
+    LocalScoreWeights,
+    ScenarioThresholds,
+    UncertaintyThresholds,
+    assign_scenario_rank,
+    compute_decision_confidence,
+    compute_local_score,
+    is_uncertain,
+)
 
 CLASS_NAMES = {0: "controlled_fire", 1: "fire", 2: "smoke"}
 
@@ -57,12 +74,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--json-out", type=Path, default=Path("classification/video_metrics.json"))
     parser.add_argument("--interval-json-dir", type=Path, default=Path("classification/interval_metrics"))
     parser.add_argument("--top-fire-frame-out", type=Path, default=Path("classification/top_fire_frame.jpg"))
-    parser.add_argument(
-        "--interval-top-frame-dir",
-        type=Path,
-        default=Path("classification/interval_top_fire_frames"),
-    )
+    parser.add_argument("--interval-top-frame-dir", type=Path, default=Path("classification/interval_top_fire_frames"))
+    parser.add_argument("--timeline-out", type=Path, default=Path("classification/timeline.json"))
+    parser.add_argument("--scoring-config", type=Path, default=Path("classification/configs/scoring.yaml"))
+    parser.add_argument("--camera-id", type=str, default="unknown_camera")
+    parser.add_argument("--location-type", type=str, default="unknown_location")
     parser.add_argument("--device", type=str, default="0")
+    parser.add_argument("--demo-mode", action="store_true", help="Force local-only demo mode (skip OpenAI even if key exists)")
     return parser.parse_args()
 
 
@@ -169,10 +187,7 @@ def _compute_aggregate_confidence(
     }
 
 
-
-
 def _compute_risk_numbers(aggregate: dict[str, float], fire_spread_score: float, fire_flicker_score: float) -> dict[str, float]:
-    """Numeric risk-oriented outputs for downstream confidence logic."""
     fire = aggregate["fire"]
     controlled = aggregate["controlled_fire"]
     smoke = aggregate["smoke"]
@@ -191,17 +206,22 @@ def _compute_risk_numbers(aggregate: dict[str, float], fire_spread_score: float,
         "flicker_normalized": flicker_n,
     }
 
+
 def _summarize_stats(stats: AggregateStats) -> dict:
     mean_controlled = _safe_mean(stats.sum_conf["controlled_fire"], stats.counts["controlled_fire"])
     mean_fire = _safe_mean(stats.sum_conf["fire"], stats.counts["fire"])
     mean_smoke = _safe_mean(stats.sum_conf["smoke"], stats.counts["smoke"])
 
     fire_flicker_score, fire_spread_score = _compute_behavior(stats)
-
     aggregate_relative_confidence = _compute_aggregate_confidence(
         mean_controlled=mean_controlled,
         mean_fire=mean_fire,
         mean_smoke=mean_smoke,
+        fire_spread_score=fire_spread_score,
+        fire_flicker_score=fire_flicker_score,
+    )
+    risk_numbers = _compute_risk_numbers(
+        aggregate=aggregate_relative_confidence,
         fire_spread_score=fire_spread_score,
         fire_flicker_score=fire_flicker_score,
     )
@@ -221,19 +241,40 @@ def _summarize_stats(stats: AggregateStats) -> dict:
             "fire_spread_score": fire_spread_score,
         },
         "aggregate_relative_confidence": aggregate_relative_confidence,
-        "risk_numbers": _compute_risk_numbers(
-            aggregate=aggregate_relative_confidence,
-            fire_spread_score=fire_spread_score,
-            fire_flicker_score=fire_flicker_score,
-        ),
+        "risk_numbers": risk_numbers,
     }
 
 
+def _load_config(path: Path) -> dict:
+    if not path.exists():
+        raise FileNotFoundError(f"Scoring config not found: {path}")
+    return yaml.safe_load(path.read_text())
+
+
+def _as_uncertainty(cfg: dict) -> UncertaintyThresholds:
+    return UncertaintyThresholds(**cfg["uncertainty"])
+
+
+def _as_local_weights(cfg: dict) -> LocalScoreWeights:
+    return LocalScoreWeights(**cfg["local_score_weights"])
+
+
+def _as_scenario_thresholds(cfg: dict) -> ScenarioThresholds:
+    return ScenarioThresholds(**cfg["scenario_thresholds"])
+
+
 def analyze_video(args: argparse.Namespace) -> dict:
+    load_dotenv()
+
     if not args.video.exists():
         raise FileNotFoundError(f"Video not found: {args.video}")
     if not args.weights.exists():
         raise FileNotFoundError(f"Weights not found: {args.weights}")
+
+    cfg = _load_config(args.scoring_config)
+    uncertainty_cfg = _as_uncertainty(cfg)
+    local_weights = _as_local_weights(cfg)
+    scenario_thresholds = _as_scenario_thresholds(cfg)
 
     cap = cv2.VideoCapture(str(args.video))
     if not cap.isOpened():
@@ -331,7 +372,17 @@ def analyze_video(args: argparse.Namespace) -> dict:
 
     args.interval_json_dir.mkdir(parents=True, exist_ok=True)
     args.interval_top_frame_dir.mkdir(parents=True, exist_ok=True)
+
+    openai_client = None if args.demo_mode else get_openai_client()
+    openai_enabled = (openai_client is not None) and (not args.demo_mode)
+    runtime_mode = "demo_local" if args.demo_mode or not openai_enabled else "openai_enabled"
+    context_cfg = cfg["context_weighting"]
+    w_context = float(context_cfg["w_context"])
+    scale_by_openai_confidence = bool(context_cfg.get("scale_by_openai_confidence", True))
+
+    timeline_entries = []
     interval_outputs = []
+    prev_rank = None
 
     for idx in sorted(interval_buckets.keys()):
         bucket = interval_buckets[idx]
@@ -352,6 +403,62 @@ def analyze_video(args: argparse.Namespace) -> dict:
             "fire_frame_score": max(0.0, bucket["top_fire_frame_score"]),
         }
 
+        agg = interval_summary["aggregate_relative_confidence"]
+        risk = interval_summary["risk_numbers"]
+
+        local_score = compute_local_score(agg, risk, local_weights)
+        uncertain = is_uncertain(interval_summary, uncertainty_cfg)
+
+        openai_payload = {"used": False, "context_score": 0.0, "scenario": None, "confidence": 0.0, "rationale": [], "note": ""}
+
+        if uncertain and openai_enabled and interval_top_fire_frame_path is not None:
+            model_name = cfg["openai"]["model"]
+            if local_score >= float(cfg["openai"].get("high_risk_switch_threshold", 1.0)):
+                model_name = cfg["openai"].get("high_risk_model", model_name)
+
+            metadata = {
+                "interval_label": interval_label,
+                "camera_id": args.camera_id,
+                "location_type": args.location_type,
+                "start_s": meta.start_s,
+                "end_s": meta.end_s,
+            }
+            openai_result = reason_with_openai(
+                client=openai_client,
+                model=model_name,
+                image_path=Path(interval_top_fire_frame_path),
+                metadata=metadata,
+                metrics={"aggregate_relative_confidence": agg, "risk_numbers": risk},
+            )
+            openai_payload = {"used": True, **openai_result}
+        elif uncertain and not openai_enabled:
+            openai_payload["note"] = "demo/local-only mode: OpenAI not used (missing key or --demo-mode)"
+        elif not uncertain:
+            openai_payload["note"] = "interval not uncertain; OpenAI skipped"
+
+        if openai_payload["used"]:
+            context_weight = w_context
+            if scale_by_openai_confidence:
+                context_weight *= float(openai_payload["confidence"])
+            final_score = (1.0 - context_weight) * local_score + context_weight * float(openai_payload["context_score"])
+        else:
+            final_score = local_score
+
+        decision_confidence = compute_decision_confidence(
+            aggregate_relative_confidence=agg,
+            risk_numbers=risk,
+            openai_output_optional=openai_payload if openai_payload["used"] else None,
+        )
+        scenario_rank = assign_scenario_rank(final_score, prev_rank, scenario_thresholds)
+        prev_rank = scenario_rank
+
+        decision = {
+            "local_score": _clamp01(local_score),
+            "final_score": _clamp01(final_score),
+            "decision_confidence": decision_confidence,
+            "scenario_rank": scenario_rank,
+        }
+
         interval_payload = {
             "interval": {
                 "label": interval_label,
@@ -367,6 +474,8 @@ def analyze_video(args: argparse.Namespace) -> dict:
                 "confidence_threshold": args.conf,
             },
             "summary": interval_summary,
+            "openai": openai_payload,
+            "decision": decision,
         }
 
         interval_path = args.interval_json_dir / f"{interval_base}.json"
@@ -379,8 +488,22 @@ def analyze_video(args: argparse.Namespace) -> dict:
                 "base_name": interval_base,
                 "json_path": str(interval_path),
                 "top_fire_frame_path": interval_top_fire_frame_path,
-                "aggregate_relative_confidence": interval_summary["aggregate_relative_confidence"],
-                "sampled_frames": bucket["stats"].sampled_frames,
+                "aggregate_relative_confidence": agg,
+                "risk_numbers": risk,
+                "openai": openai_payload,
+                "decision": decision,
+            }
+        )
+
+        timeline_entries.append(
+            {
+                "interval_index": meta.index - 1,
+                "start_time": meta.start_s,
+                "end_time": meta.end_s,
+                "aggregate_relative_confidence": agg,
+                "risk_numbers": risk,
+                "openai": openai_payload,
+                "decision": decision,
             }
         )
 
@@ -391,6 +514,9 @@ def analyze_video(args: argparse.Namespace) -> dict:
             "duration_seconds": duration_s,
             "fps": fps,
             "frame_size": {"width": frame_w, "height": frame_h},
+            "camera_id": args.camera_id,
+            "location_type": args.location_type,
+            "runtime_mode": runtime_mode,
         },
         "sampling": {
             "clip_seconds": args.clip_seconds,
@@ -405,6 +531,34 @@ def analyze_video(args: argparse.Namespace) -> dict:
 
     args.json_out.parent.mkdir(parents=True, exist_ok=True)
     args.json_out.write_text(json.dumps(metrics, indent=2))
+
+    # timeline.json
+    scenario_counts = {"Emergency": 0, "Hazard": 0, "Elevated Risk": 0}
+    first_escalation = None
+    max_risk = 0.0
+    for row in timeline_entries:
+        rank = row["decision"]["scenario_rank"]
+        scenario_counts[rank] = scenario_counts.get(rank, 0) + 1
+        max_risk = max(max_risk, row["decision"]["final_score"])
+        if first_escalation is None and rank in {"Emergency", "Hazard"}:
+            first_escalation = row["start_time"]
+
+    timeline = {
+        "event_id": f"evt_{uuid.uuid4().hex[:12]}",
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "interval_seconds": args.clip_seconds,
+        "timeline": timeline_entries,
+        "summary": {
+            "max_risk": max_risk,
+            "time_to_first_escalation": first_escalation,
+            "scenario_counts": scenario_counts,
+            "openai_enabled": openai_enabled,
+            "runtime_mode": runtime_mode,
+        },
+    }
+    args.timeline_out.parent.mkdir(parents=True, exist_ok=True)
+    args.timeline_out.write_text(json.dumps(timeline, indent=2))
+
     return metrics
 
 
@@ -413,8 +567,10 @@ def main() -> None:
     metrics = analyze_video(args)
     print("Analysis complete")
     print(f"Overall metrics saved to: {args.json_out}")
+    print(f"Timeline saved to: {args.timeline_out}")
     print(f"Interval metrics folder: {args.interval_json_dir}")
     print(f"Interval top-frame folder: {args.interval_top_frame_dir}")
+    print(f"Runtime mode: {metrics['input']['runtime_mode']}")
     if metrics["summary"]["top_fire_frame"]["path"]:
         print(f"Top fire frame saved to: {metrics['summary']['top_fire_frame']['path']}")
     print(json.dumps(metrics["summary"], indent=2))

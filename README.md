@@ -1,23 +1,9 @@
 # Fire Detection Project
 
-This repository has two clearly separated areas:
+This repository has two areas:
 
-- `model_training/` → everything related to training and fine-tuning your 3-class model.
-- `classification/` → runtime video analysis using your trained model (`classification_model.pt`).
-
-`requirements.txt` stays at repo root so dependencies can evolve in one place.
-
----
-
-## Repository structure
-
-- `model_training/README.md` — full training/fine-tuning guide.
-- `model_training/src/` — training and inference helper scripts.
-- `model_training/configs/` — dataset config templates.
-- `classification/analyze_video.py` — interval-based video analysis and metrics output.
-- `requirements.txt` — shared dependencies.
-
----
+- `model_training/` → training/fine-tuning workflow for `controlled_fire`, `fire`, `smoke`
+- `classification/` → interval-based runtime risk analysis for videos
 
 ## Install
 
@@ -27,35 +13,25 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
----
+## OpenAI setup (optional)
 
-## Video classification module (new)
+OpenAI is optional and only used for uncertain intervals.
 
-The new video module is designed for **post-training usage** with your tuned model file:
+1. Copy env template:
 
-- expected model path: `classification_model.pt` (repo root), or pass `--weights` explicitly.
-- input: video file.
-- output: JSON metrics report (default: `classification/video_metrics.json`).
+```bash
+cp .env.example .env
+```
 
-### Why video is handled differently
+2. Set your key in `.env`:
 
-Compared to a single image, video provides temporal signals that can improve decision quality:
+```env
+OPENAI_API_KEY=your_openai_api_key_here
+```
 
-- **Flicker behavior**: abrupt frame-to-frame confidence changes can indicate active flames.
-- **Spread behavior**: increasing detected fire area over time can indicate escalation.
-- **Sampling windows**: process short clips (e.g., 10s), skip a gap (e.g., 10s), then process again to reduce compute while still tracking trends.
+If key is missing, analyzer runs in local-only mode and records `openai.used: false`.
 
-### Implemented interval logic
-
-The script supports this pattern:
-
-- analyze for `clip_seconds` (default 10s),
-- skip for `break_seconds` (default 10s),
-- repeat until video ends.
-
-Within active windows, frames are sampled at `sample_fps` (default 2 fps).
-
-### Command
+## Classification command
 
 ```bash
 python classification/analyze_video.py \
@@ -68,40 +44,55 @@ python classification/analyze_video.py \
   --json-out classification/video_metrics.json \
   --interval-json-dir classification/interval_metrics \
   --interval-top-frame-dir classification/interval_top_fire_frames \
-  --top-fire-frame-out classification/top_fire_frame.jpg
+  --top-fire-frame-out classification/top_fire_frame.jpg \
+  --timeline-out classification/timeline.json \
+  --camera-id cam_01 \
+  --location-type warehouse \
+  --demo-mode
 ```
 
-### Returned metrics (end of run)
+`--demo-mode` forces local-only run (no OpenAI calls).
 
-The JSON contains:
+## What classification outputs
 
-- `input`: video/weights/fps/frame size metadata.
-- `sampling`: clip/break/sample settings and sampled frame count.
-- `summary.counts`: detection counts per class (`controlled_fire`, `fire`, `smoke`).
-- `summary.max_confidence`: peak confidence per class.
-- `summary.mean_confidence`: average confidence per class.
-- `summary.video_behavior_signals.fire_flicker_score`: mean abs delta of consecutive fire confidences.
-- `summary.video_behavior_signals.fire_spread_score`: range of normalized fire bbox area over the video.
-- `summary.aggregate_relative_confidence`: normalized final confidence for `controlled_fire`, `fire`, and `smoke`.
-- `summary.top_fire_frame`: path, timestamp, and computed fire-frame score for the highest-risk sampled frame.
-- `interval_outputs`: list of per-interval JSON/JPG output pairs with shared base names (easy matching) + interval aggregate confidence and top-frame metadata.
-- `summary.risk_numbers`: numeric risk features (`dangerous_fire_index`, `fire_vs_controlled_gap`, `fire_to_controlled_ratio`, normalized spread/flicker) for downstream confidence logic.
+- `classification/video_metrics.json` (overall compact aggregate)
+- `classification/timeline.json` (full per-interval decision timeline)
+- one compact interval JSON per interval in `classification/interval_metrics/`
+- one top-fire JPG per interval in `classification/interval_top_fire_frames/`
+- one global top-fire JPG in `classification/top_fire_frame.jpg`
 
-Note: JSON output is intentionally compact and aggregate-only (no per-box timestamp dump).
+JSON is compact/aggregate-only (no per-box timestamp dump).
 
-These outputs are ready to feed into downstream contextual assessment logic (including OpenAI API decision layers).
+### Key per-interval numeric fields
 
----
+In each interval JSON:
 
-## Model training docs (kept intact)
+- `summary.aggregate_relative_confidence.{controlled_fire,fire,smoke}`
+- `summary.risk_numbers.dangerous_fire_index`
+- `summary.risk_numbers.fire_vs_controlled_gap`
+- `summary.risk_numbers.fire_to_controlled_ratio`
+- `decision.local_score`
+- `decision.final_score`
+- `decision.decision_confidence`
+- `decision.scenario_rank`
 
-All training documentation remains in:
+## Timeline summary fields
+
+`timeline.json` includes top-level:
+
+- `summary.max_risk`
+- `summary.time_to_first_escalation`
+- `summary.scenario_counts`
+
+## Model training docs
+
+Training docs stay in:
 
 - `model_training/README.md`
 
-Start there for:
 
-- dataset setup,
-- fine-tuning from your existing `.pt`,
-- running image/realtime model checks,
-- and producing `best.pt` (which you can copy/rename to `classification_model.pt` for runtime use).
+## OpenAI model switch behavior
+
+Configured in `classification/configs/scoring.yaml`:
+- normal uncertain intervals use `gpt-4o-mini`
+- higher-risk uncertain intervals can switch to `gpt-4o` based on `high_risk_switch_threshold`

@@ -1,20 +1,72 @@
 # Classification Module
 
-This folder contains runtime-only video analysis tools.
+This module runs interval-based video risk analysis and writes compact outputs for downstream decision logic.
 
-## Script
+## What it outputs
 
-- `analyze_video.py`
-  - Uses `classification_model.pt` by default.
-  - Analyzes video in ON/OFF windows (default: 10s ON / 10s OFF).
-  - Writes compact aggregate JSON only (no per-box timestamp dump).
-  - Saves:
-    - one overall JSON (`classification/video_metrics.json` by default)
-    - one compact JSON per active interval (`classification/interval_metrics/`)
-    - one highest fire-score frame JPG per interval (`classification/interval_top_fire_frames/`)
-    - one highest fire-score frame JPG across the full run (`classification/top_fire_frame.jpg`)
+For each run it saves:
 
-## Test with a video
+- `video_metrics.json` (overall aggregate)
+- one JSON per interval in `classification/interval_metrics/`
+- one top-fire image per interval in `classification/interval_top_fire_frames/`
+- one overall top-fire image (`classification/top_fire_frame.jpg`)
+- `timeline.json` (full decision timeline)
+
+No per-box detection dump is written to JSON.
+
+## OpenAI integration behavior (uncertain intervals only)
+
+OpenAI is called only when an interval is considered uncertain by `is_uncertain(...)` rules from `classification/configs/scoring.yaml`.
+
+If uncertain and API key exists:
+- interval top-fire frame + metrics are sent to OpenAI.
+- OpenAI returns machine-readable:
+  - `context_score`
+  - `scenario`
+  - `confidence`
+  - `rationale`
+
+If uncertain and API key is missing:
+- OpenAI is skipped.
+- output records local-only mode.
+
+If not uncertain:
+- OpenAI is skipped by design.
+
+### Model selection for OpenAI
+
+OpenAI model choice is configurable in `classification/configs/scoring.yaml`:
+
+- default uncertain intervals: `openai.model` (default `gpt-4o-mini`)
+- higher-risk uncertain intervals: `openai.high_risk_model` (default `gpt-4o`) when local score exceeds `openai.high_risk_switch_threshold`
+
+
+## Configure environment
+
+### 1) Create `.env`
+
+Copy `.env.example` to `.env` and fill your key:
+
+```bash
+cp .env.example .env
+```
+
+```env
+OPENAI_API_KEY=your_openai_api_key_here
+```
+
+### 2) Set env var manually (optional)
+
+- macOS/Linux:
+  ```bash
+  export OPENAI_API_KEY="..."
+  ```
+- PowerShell:
+  ```powershell
+  $env:OPENAI_API_KEY="..."
+  ```
+
+## Run with a test video
 
 ```bash
 python classification/analyze_video.py \
@@ -27,71 +79,18 @@ python classification/analyze_video.py \
   --json-out classification/video_metrics.json \
   --interval-json-dir classification/interval_metrics \
   --interval-top-frame-dir classification/interval_top_fire_frames \
-  --top-fire-frame-out classification/top_fire_frame.jpg
+  --top-fire-frame-out classification/top_fire_frame.jpg \
+  --timeline-out classification/timeline.json \
+  --camera-id cam_01 \
+  --location-type warehouse \
+  --demo-mode
 ```
 
-## Clear interval labeling and JSON/JPG matching
+`--demo-mode` forces local-only behavior even if an API key is present.
 
-For each interval, a shared base name is used in both files:
+## Where to read the interval aggregate numbers
 
-- JSON: `classification/interval_metrics/incident_interval_0001_000000s_000010s.json`
-- JPG: `classification/interval_top_fire_frames/incident_interval_0001_000000s_000010s_top_fire.jpg`
-
-This guarantees that each interval JSON maps clearly to its interval top-fire frame image.
-
-Each interval JSON also contains:
-
-- `interval.label`
-- `interval.base_name`
-- `summary.top_fire_frame.path`
-
-## JSON content policy (compact)
-
-### Overall JSON
-
-Contains only:
-
-- `input`
-- `sampling`
-- `summary` (aggregate run metrics)
-- `interval_outputs` (pointers to each interval JSON/JPG + interval aggregate confidence)
-
-### Per-interval JSON
-
-Contains only:
-
-- `interval` metadata (label/index/timing/base_name)
-- `sampling` config
-- `summary` aggregate metrics:
-  - counts, mean/max confidence
-  - flicker/spread
-  - aggregate relative confidence
-  - interval top-fire-frame info
-
-No per-box detection arrays are written.
-
-## Rebalanced confidence math
-
-The confidence model is rebalanced so real fires are less likely to be over-labeled as `controlled_fire`.
-
-- `controlled_raw = (0.45*mean_controlled + 0.15*(1-spread_n) + 0.10*(1-flicker_n) + 0.30*(1-mean_fire))*(1-0.35*mean_smoke)`
-- `fire_raw = (0.60*mean_fire + 0.20*spread_n + 0.15*flicker_n + 0.05*mean_smoke)*(1-0.15*mean_controlled)`
-- `smoke_raw = 0.75*mean_smoke + 0.20*mean_fire + 0.05*flicker_n`
-- `final[class] = raw[class] / (controlled_raw + fire_raw + smoke_raw)`
-
-with:
-
-- `spread_n = clamp(fire_spread_score * 3)`
-- `flicker_n = clamp(fire_flicker_score * 4)`
-
-## Frame-level fire score math
-
-- `fire_frame_score = max(fire_conf*(0.7 + 0.3*clamp(area_ratio*5))) - 0.20*max(controlled_fire_conf)`
-
-
-## Where to read interval aggregate scores
-
-In each interval JSON, the key values are in:
+In each interval JSON:
 
 - `summary.aggregate_relative_confidence.controlled_fire`
 - `summary.aggregate_relative_confidence.fire`
@@ -99,7 +98,31 @@ In each interval JSON, the key values are in:
 - `summary.risk_numbers.dangerous_fire_index`
 - `summary.risk_numbers.fire_vs_controlled_gap`
 - `summary.risk_numbers.fire_to_controlled_ratio`
+- `decision.local_score`
+- `decision.final_score`
+- `decision.decision_confidence`
+- `decision.scenario_rank`
 
-These are the intended numeric outputs for determining risky, spreading fire vs controlled fire.
+## Timeline output
 
-Note: `scoring_formula` was intentionally removed from JSON to keep output compact and calculation-focused; formulas remain documented in this README.
+`timeline.json` includes full sequence and summary:
+
+- `event_id`
+- `interval_seconds`
+- `timeline[]` entries with:
+  - aggregate confidences
+  - risk numbers
+  - openai block
+  - decision block
+- top-level summary:
+  - `max_risk`
+  - `time_to_first_escalation`
+  - `scenario_counts`
+
+## Scoring overview
+
+- `local_score` is computed from dangerous index + spread + smoke + fire/control gap + ratio + flicker penalty.
+- if OpenAI used: `final_score = (1-w)*local + w*context` (optionally scaled by OpenAI confidence).
+- if OpenAI skipped: `final_score = local_score`.
+- `decision_confidence` is separate from detection confidence and measures decisiveness/consistency of signals.
+- scenario rank always assigned: `Emergency`, `Hazard`, or `Elevated Risk` with hysteresis thresholds from config.
