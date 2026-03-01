@@ -169,12 +169,42 @@ def _compute_aggregate_confidence(
     }
 
 
+
+
+def _compute_risk_numbers(aggregate: dict[str, float], fire_spread_score: float, fire_flicker_score: float) -> dict[str, float]:
+    """Numeric risk-oriented outputs for downstream confidence logic."""
+    fire = aggregate["fire"]
+    controlled = aggregate["controlled_fire"]
+    smoke = aggregate["smoke"]
+    spread_n = _clamp01(fire_spread_score * 3.0)
+    flicker_n = _clamp01(fire_flicker_score * 4.0)
+
+    fire_vs_controlled_gap = fire - controlled
+    fire_to_controlled_ratio = fire / max(controlled, 1e-6)
+    dangerous_fire_index = _clamp01(0.55 * fire + 0.20 * smoke + 0.15 * spread_n + 0.10 * flicker_n)
+
+    return {
+        "dangerous_fire_index": dangerous_fire_index,
+        "fire_vs_controlled_gap": fire_vs_controlled_gap,
+        "fire_to_controlled_ratio": fire_to_controlled_ratio,
+        "spread_normalized": spread_n,
+        "flicker_normalized": flicker_n,
+    }
+
 def _summarize_stats(stats: AggregateStats) -> dict:
     mean_controlled = _safe_mean(stats.sum_conf["controlled_fire"], stats.counts["controlled_fire"])
     mean_fire = _safe_mean(stats.sum_conf["fire"], stats.counts["fire"])
     mean_smoke = _safe_mean(stats.sum_conf["smoke"], stats.counts["smoke"])
 
     fire_flicker_score, fire_spread_score = _compute_behavior(stats)
+
+    aggregate_relative_confidence = _compute_aggregate_confidence(
+        mean_controlled=mean_controlled,
+        mean_fire=mean_fire,
+        mean_smoke=mean_smoke,
+        fire_spread_score=fire_spread_score,
+        fire_flicker_score=fire_flicker_score,
+    )
 
     return {
         "num_detections_total": stats.num_detections_total,
@@ -190,23 +220,12 @@ def _summarize_stats(stats: AggregateStats) -> dict:
             "fire_flicker_score": fire_flicker_score,
             "fire_spread_score": fire_spread_score,
         },
-        "aggregate_relative_confidence": _compute_aggregate_confidence(
-            mean_controlled=mean_controlled,
-            mean_fire=mean_fire,
-            mean_smoke=mean_smoke,
+        "aggregate_relative_confidence": aggregate_relative_confidence,
+        "risk_numbers": _compute_risk_numbers(
+            aggregate=aggregate_relative_confidence,
             fire_spread_score=fire_spread_score,
             fire_flicker_score=fire_flicker_score,
         ),
-    }
-
-
-def _scoring_formula() -> dict[str, str]:
-    return {
-        "controlled_fire": "(0.45*mean_controlled + 0.15*(1-clamp(fire_spread*3)) + 0.10*(1-clamp(fire_flicker*4)) + 0.30*(1-mean_fire))*(1-0.35*mean_smoke)",
-        "fire": "(0.60*mean_fire + 0.20*clamp(fire_spread*3) + 0.15*clamp(fire_flicker*4) + 0.05*mean_smoke)*(1-0.15*mean_controlled)",
-        "smoke": "0.75*mean_smoke + 0.20*mean_fire + 0.05*clamp(fire_flicker*4)",
-        "normalization": "final_confidence[class] = raw[class] / sum(raw_controlled_fire, raw_fire, raw_smoke)",
-        "fire_frame_score": "max(fire_conf*(0.7+0.3*clamp(area_ratio*5))) - 0.20*max(controlled_fire_conf)",
     }
 
 
@@ -303,7 +322,6 @@ def analyze_video(args: argparse.Namespace) -> dict:
         cv2.imwrite(str(args.top_fire_frame_out), top_fire_frame)
         top_fire_frame_path = str(args.top_fire_frame_out)
 
-    scoring_formula = _scoring_formula()
     overall_summary = _summarize_stats(overall_stats)
     overall_summary["top_fire_frame"] = {
         "path": top_fire_frame_path,
@@ -382,7 +400,6 @@ def analyze_video(args: argparse.Namespace) -> dict:
             "confidence_threshold": args.conf,
         },
         "summary": overall_summary,
-        "scoring_formula": scoring_formula,
         "interval_outputs": interval_outputs,
     }
 

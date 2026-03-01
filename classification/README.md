@@ -54,7 +54,6 @@ Contains only:
 - `input`
 - `sampling`
 - `summary` (aggregate run metrics)
-- `scoring_formula`
 - `interval_outputs` (pointers to each interval JSON/JPG + interval aggregate confidence)
 
 ### Per-interval JSON
@@ -88,3 +87,19 @@ with:
 ## Frame-level fire score math
 
 - `fire_frame_score = max(fire_conf*(0.7 + 0.3*clamp(area_ratio*5))) - 0.20*max(controlled_fire_conf)`
+
+
+## Where to read interval aggregate scores
+
+In each interval JSON, the key values are in:
+
+- `summary.aggregate_relative_confidence.controlled_fire`
+- `summary.aggregate_relative_confidence.fire`
+- `summary.aggregate_relative_confidence.smoke`
+- `summary.risk_numbers.dangerous_fire_index`
+- `summary.risk_numbers.fire_vs_controlled_gap`
+- `summary.risk_numbers.fire_to_controlled_ratio`
+
+These are the intended numeric outputs for determining risky, spreading fire vs controlled fire.
+
+Note: `scoring_formula` was intentionally removed from JSON to keep output compact and calculation-focused; formulas remain documented in this README.
