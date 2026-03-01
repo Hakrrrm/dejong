@@ -69,7 +69,13 @@ def parse_args() -> argparse.Namespace:
         "--top-fire-frame-out",
         type=Path,
         default=Path("classification/top_fire_frame.jpg"),
-        help="Where to save the sampled frame with the highest computed fire score",
+        help="Where to save the sampled frame with the highest computed fire score (overall)",
+    )
+    parser.add_argument(
+        "--interval-top-frame-dir",
+        type=Path,
+        default=Path("classification/interval_top_fire_frames"),
+        help="Directory to save highest fire-score frame for each interval",
     )
     parser.add_argument("--device", type=str, default="0", help="Device id or cpu")
     return parser.parse_args()
@@ -251,6 +257,9 @@ def analyze_video(args: argparse.Namespace) -> dict:
                     "meta": meta,
                     "sampled_frames": 0,
                     "detections": [],
+                    "top_fire_frame_score": -1.0,
+                    "top_fire_frame_timestamp": None,
+                    "top_fire_frame": None,
                 },
             )
             bucket["sampled_frames"] += 1
@@ -286,6 +295,11 @@ def analyze_video(args: argparse.Namespace) -> dict:
                 top_fire_frame_timestamp = t
                 top_fire_frame = frame.copy()
 
+            if frame_fire_score > bucket["top_fire_frame_score"]:
+                bucket["top_fire_frame_score"] = frame_fire_score
+                bucket["top_fire_frame_timestamp"] = t
+                bucket["top_fire_frame"] = frame.copy()
+
         frame_idx += 1
 
     cap.release()
@@ -305,12 +319,29 @@ def analyze_video(args: argparse.Namespace) -> dict:
     }
 
     args.interval_json_dir.mkdir(parents=True, exist_ok=True)
+    args.interval_top_frame_dir.mkdir(parents=True, exist_ok=True)
     interval_outputs = []
 
     for idx in sorted(interval_buckets.keys()):
         bucket = interval_buckets[idx]
         meta: IntervalMeta = bucket["meta"]
         interval_summary = _summarize_detections(bucket["detections"])
+
+        interval_top_fire_frame_path = None
+        if bucket["top_fire_frame"] is not None:
+            interval_top_frame_path = (
+                args.interval_top_frame_dir
+                / f"incident_interval_{meta.index:04d}_{int(meta.start_s):06d}s_{int(meta.end_s):06d}s_top_fire.jpg"
+            )
+            cv2.imwrite(str(interval_top_frame_path), bucket["top_fire_frame"])
+            interval_top_fire_frame_path = str(interval_top_frame_path)
+
+        interval_summary["top_fire_frame"] = {
+            "path": interval_top_fire_frame_path,
+            "timestamp_s": bucket["top_fire_frame_timestamp"],
+            "fire_frame_score": max(0.0, bucket["top_fire_frame_score"]),
+        }
+
         interval_payload = {
             "interval": {
                 "index": meta.index,
@@ -350,6 +381,9 @@ def analyze_video(args: argparse.Namespace) -> dict:
                 "end_s": meta.end_s,
                 "path": str(interval_path),
                 "sampled_frames": bucket["sampled_frames"],
+                "top_fire_frame_path": interval_top_fire_frame_path,
+                "top_fire_frame_timestamp_s": bucket["top_fire_frame_timestamp"],
+                "top_fire_frame_score": max(0.0, bucket["top_fire_frame_score"]),
             }
         )
 
@@ -396,6 +430,7 @@ def main() -> None:
     print("Analysis complete")
     print(f"Overall metrics saved to: {args.json_out}")
     print(f"Interval metrics folder: {args.interval_json_dir}")
+    print(f"Interval top-frame folder: {args.interval_top_frame_dir}")
     if metrics["summary"]["top_fire_frame"]["path"]:
         print(f"Top fire frame saved to: {metrics['summary']['top_fire_frame']['path']}")
     print(json.dumps(metrics["summary"], indent=2))

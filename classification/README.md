@@ -11,7 +11,8 @@ This folder contains runtime-only video analysis tools.
   - Saves:
     - one overall JSON (`classification/video_metrics.json` by default)
     - one JSON per active interval (`classification/interval_metrics/` by default)
-    - the highest fire-score frame image (`classification/top_fire_frame.jpg` by default)
+    - one highest fire-score frame image per interval (`classification/interval_top_fire_frames/` by default)
+    - one highest fire-score frame image across the full run (`classification/top_fire_frame.jpg` by default)
 
 ## Test with a video
 
@@ -25,6 +26,7 @@ python classification/analyze_video.py \
   --conf 0.25 \
   --json-out classification/video_metrics.json \
   --interval-json-dir classification/interval_metrics \
+  --interval-top-frame-dir classification/interval_top_fire_frames \
   --top-fire-frame-out classification/top_fire_frame.jpg
 ```
 
@@ -32,7 +34,8 @@ After run:
 
 - Open `classification/video_metrics.json` for run-wide aggregates.
 - Open `classification/interval_metrics/incident_interval_XXXX_*.json` for each active clip.
-- Open `classification/top_fire_frame.jpg` for the highest computed fire-score frame.
+- Open `classification/interval_top_fire_frames/incident_interval_XXXX_*_top_fire.jpg` for each interval's top fire-score frame.
+- Open `classification/top_fire_frame.jpg` for the highest computed fire-score frame across the full run.
 
 ## Interval labeling
 
@@ -79,3 +82,14 @@ The script saves the frame with highest `fire_frame_score` and reports:
 - `summary.top_fire_frame.path`
 - `summary.top_fire_frame.timestamp_s`
 - `summary.top_fire_frame.fire_frame_score`
+
+
+## Per-interval top fire frame in JSON
+
+Each interval JSON now includes:
+
+- `summary.top_fire_frame.path`
+- `summary.top_fire_frame.timestamp_s`
+- `summary.top_fire_frame.fire_frame_score`
+
+The overall JSON (`video_metrics.json`) also includes these values in `interval_outputs[]`.
