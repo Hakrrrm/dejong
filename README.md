@@ -66,6 +66,8 @@ python classification/analyze_video.py \
   --sample-fps 2 \
   --conf 0.25 \
   --json-out classification/video_metrics.json \
+  --interval-json-dir classification/interval_metrics \
+  --interval-top-frame-dir classification/interval_top_fire_frames \
   --top-fire-frame-out classification/top_fire_frame.jpg
 ```
 
@@ -83,6 +85,7 @@ The JSON contains:
 - `summary.aggregate_relative_confidence`: normalized final confidence for `controlled_fire`, `fire`, and `smoke`.
 - `summary.top_fire_frame`: path, timestamp, and computed fire-frame score for the highest-risk sampled frame.
 - `scoring_formula`: explicit formulas used for aggregate confidence and frame-level fire score.
+- `interval_outputs`: list of per-interval JSON files written during run, including top fire-frame metadata for each interval.
 - `detections`: per-detection rows with timestamp, class, confidence, bbox, and area ratio.
 
 These outputs are ready to feed into downstream contextual assessment logic (including OpenAI API decision layers).
