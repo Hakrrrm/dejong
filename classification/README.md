@@ -140,3 +140,29 @@ If OpenAI is not called when expected, check in `metrics.json`:
 - `openai.eligible`
 - `openai.trigger_reason`
 - `openai.note`
+
+
+## 10) Compare improved vs original model on sample images
+
+Use this helper to run both models on the same image folder and export annotated boxes for side-by-side comparison.
+
+```bash
+python classification/compare_models_on_images.py \
+  --source-dir /path/to/sample_images \
+  --improved-weights classification_model.pt \
+  --baseline-weights best_nano_111.pt \
+  --output-dir test_results \
+  --conf 0.25
+```
+
+PowerShell one-line:
+
+```powershell
+python classification/compare_models_on_images.py --source-dir sample_images --improved-weights classification_model.pt --baseline-weights best_nano_111.pt --output-dir test_results --conf 0.25
+```
+
+Output structure:
+
+- `test_results/classification_model/` → annotated images named like `image01__classification_model.jpg`
+- `test_results/best_nano_111/` → annotated images named like `image01__best_nano_111.jpg`
+- `test_results/comparison_summary.json` → compact per-image detection count/confidence summary for both models

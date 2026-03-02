@@ -59,3 +59,18 @@ Use `--demo-mode` to force local-only.
 All model training/fine-tuning documentation remains in:
 
 - `model_training/README.md`
+
+
+## Image-model comparison quick test
+
+To compare `classification_model.pt` vs `best_nano_111.pt` on a sample image folder:
+
+```bash
+python classification/compare_models_on_images.py \
+  --source-dir /path/to/sample_images \
+  --improved-weights classification_model.pt \
+  --baseline-weights best_nano_111.pt \
+  --output-dir test_results
+```
+
+This writes annotated outputs per model under `test_results/` with filenames that include the model name.
