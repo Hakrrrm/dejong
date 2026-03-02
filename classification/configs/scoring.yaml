@@ -1,36 +1,36 @@
 openai:
   model: gpt-4o-mini
   high_risk_model: gpt-4o
-  high_risk_switch_threshold: 0.85
+  high_risk_switch_threshold: 0.65
 
 uncertainty:
-  dangerous_mid_min: 0.35
-  dangerous_mid_max: 0.75
-  gap_abs_max: 0.10
-  smoke_dominance_min: 0.20
-  controlled_dominance_min: 0.45
-  high_flicker_min: 0.65
-  moderate_spread_min: 0.20
-  moderate_spread_max: 0.55
+  dangerous_mid_min: 0.25
+  dangerous_mid_max: 0.85
+  gap_abs_max: 0.18
+  smoke_dominance_min: 0.10
+  controlled_dominance_min: 0.35
+  high_flicker_min: 0.50
+  moderate_spread_min: 0.10
+  moderate_spread_max: 0.70
 
 local_score_weights:
-  dangerous_fire_index: 0.45
-  spread_normalized: 0.20
-  smoke: 0.15
-  fire_controlled_gap_positive: 0.12
-  fire_controlled_ratio_capped: 0.10
-  flicker_penalty: 0.08
+  dangerous_fire_index: 0.55
+  spread_normalized: 0.30
+  smoke: 0.25
+  fire_controlled_gap_positive: 0.20
+  fire_controlled_ratio_capped: 0.18
+  flicker_penalty: 0.04
 
 context_weighting:
-  w_context: 0.35
+  w_context: 0.50
   scale_by_openai_confidence: true
 
 scenario_thresholds:
-  emergency_enter: 0.78
-  emergency_exit: 0.70
-  hazard_enter: 0.52
-  hazard_exit: 0.45
-  elevated_enter: 0.20
+  emergency_enter: 0.66
+  emergency_exit: 0.58
+  hazard_enter: 0.40
+  hazard_exit: 0.34
+  elevated_enter: 0.15
 
 review:
   escalation_window_seconds: 30

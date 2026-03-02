@@ -16,7 +16,7 @@ No per-box detection dump is written to JSON.
 
 ## OpenAI integration behavior (uncertain intervals only)
 
-OpenAI is called only when an interval is considered uncertain by `is_uncertain(...)` rules from `classification/configs/scoring.yaml`.
+OpenAI is called only when an interval is considered uncertain by `is_uncertain(...)` rules from `classification/configs/scoring.yaml`. The uncertainty band has been widened so OpenAI is invoked more frequently as a tie-breaker.
 
 If uncertain and API key exists:
 - interval top-fire frame + metrics are sent to OpenAI.
@@ -38,13 +38,13 @@ If not uncertain:
 An interval triggers OpenAI reasoning when **any one** of these is true:
 
 1. **Danger index mid-band**
-   - `0.35 <= dangerous_fire_index <= 0.75`
+   - `0.25 <= dangerous_fire_index <= 0.85`
 2. **Fire vs controlled is near tie**
-   - `abs(fire_vs_controlled_gap) < 0.10`
+   - `abs(fire_vs_controlled_gap) < 0.18`
 3. **Smoke present while controlled fire dominates**
-   - `smoke >= 0.20` **and** `controlled_fire >= 0.45`
+   - `smoke >= 0.10` **and** `controlled_fire >= 0.35`
 4. **High flicker + moderate spread conflict**
-   - `flicker_normalized >= 0.65` **and** `0.20 <= spread_normalized <= 0.55`
+   - `flicker_normalized >= 0.50` **and** `0.10 <= spread_normalized <= 0.70`
 
 If none of the above are true, OpenAI is not called for that interval.
 
@@ -53,7 +53,7 @@ If none of the above are true, OpenAI is not called for that interval.
 OpenAI model choice is configurable in `classification/configs/scoring.yaml`:
 
 - default uncertain intervals: `openai.model` (default `gpt-4o-mini`)
-- higher-risk uncertain intervals: `openai.high_risk_model` (default `gpt-4o`) when local score exceeds `openai.high_risk_switch_threshold`
+- higher-risk uncertain intervals: `openai.high_risk_model` (default `gpt-4o`) when local score exceeds `openai.high_risk_switch_threshold` (`0.65`)
 
 
 ## Configure environment
@@ -139,15 +139,15 @@ In each interval JSON:
 
 `local_score` uses these configured weights:
 
-- `0.45 * dangerous_fire_index`
-- `0.20 * spread_normalized`
-- `0.15 * smoke`
-- `0.12 * max(fire_vs_controlled_gap, 0)`
-- `0.10 * min(fire_to_controlled_ratio, 5)/5`
-- penalty: `0.08 * flicker_normalized * max(0, 1-fire)`
+- `0.55 * dangerous_fire_index`
+- `0.30 * spread_normalized`
+- `0.25 * smoke`
+- `0.20 * max(fire_vs_controlled_gap, 0)`
+- `0.18 * min(fire_to_controlled_ratio, 5)/5`
+- penalty: `0.04 * flicker_normalized * max(0, 1-fire)`
 
 Then:
-- if OpenAI used: `final_score = (1-w)*local + w*context`, with `w=0.35` (optionally multiplied by OpenAI confidence).
+- if OpenAI used: `final_score = (1-w)*local + w*context`, with `w=0.50` (optionally multiplied by OpenAI confidence).
 - if OpenAI skipped: `final_score = local_score`.
 
 `decision_confidence` is separate from detection confidence and measures consistency/decisiveness of the combined signals.
@@ -157,13 +157,13 @@ Then:
 Configured thresholds:
 
 - **Emergency**
-  - enter when `final_score >= 0.78`
-  - remain Emergency while `final_score >= 0.70`
+  - enter when `final_score >= 0.66`
+  - remain Emergency while `final_score >= 0.58`
 - **Hazard**
-  - enter when `final_score >= 0.52` (and not Emergency)
-  - remain Hazard while `final_score >= 0.45`
+  - enter when `final_score >= 0.40` (and not Emergency)
+  - remain Hazard while `final_score >= 0.34`
 - **Elevated Risk**
-  - default fallback for lower scores (`>= 0.20` target band; implementation currently always falls back to this rank)
+  - default fallback for lower scores (`>= 0.15` target band; implementation currently always falls back to this rank)
 
 ## Console output behavior
 

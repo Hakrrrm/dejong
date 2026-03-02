@@ -18,7 +18,7 @@ pip install -r requirements.txt
 > If `.env.example` is not visible in your GitHub file list, use `env.example` (same content).
 
 
-OpenAI is optional and only used for uncertain intervals.
+OpenAI is optional and only used for uncertain intervals. The uncertainty thresholds are intentionally widened to call OpenAI more frequently for borderline clips.
 
 1. Copy env template:
 
@@ -99,19 +99,19 @@ Training docs stay in:
 
 Configured in `classification/configs/scoring.yaml`:
 - normal uncertain intervals use `gpt-4o-mini`
-- higher-risk uncertain intervals can switch to `gpt-4o` based on `high_risk_switch_threshold`
+- higher-risk uncertain intervals can switch to `gpt-4o` based on `high_risk_switch_threshold` (now more aggressive at `0.65`)
 
 ## Exact OpenAI trigger criteria and score ranges
 
 OpenAI is only called for uncertain intervals. Uncertainty is triggered when any of these are true:
-- `0.35 <= dangerous_fire_index <= 0.75`
-- `abs(fire_vs_controlled_gap) < 0.10`
-- `smoke >= 0.20` and `controlled_fire >= 0.45`
-- `flicker_normalized >= 0.65` and `0.20 <= spread_normalized <= 0.55`
+- `0.25 <= dangerous_fire_index <= 0.85`
+- `abs(fire_vs_controlled_gap) < 0.18`
+- `smoke >= 0.10` and `controlled_fire >= 0.35`
+- `flicker_normalized >= 0.50` and `0.10 <= spread_normalized <= 0.70`
 
 Scenario rank thresholds (with hysteresis):
-- Emergency enter `>= 0.78`, stay while `>= 0.70`
-- Hazard enter `>= 0.52`, stay while `>= 0.45`
+- Emergency enter `>= 0.66`, stay while `>= 0.58`
+- Hazard enter `>= 0.40`, stay while `>= 0.34`
 - Elevated Risk fallback below Hazard
 
 ## Console output behavior
