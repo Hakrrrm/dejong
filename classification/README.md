@@ -1,82 +1,37 @@
-# Classification Module
+# Classification Module (Single-Window Analysis)
 
-This module runs interval-based video risk analysis and writes compact outputs for downstream decision logic.
+This module runs **one analysis window per command execution**.
 
-## What it outputs
+- You choose a start time and duration.
+- The script samples frames in that window.
+- It outputs exactly **one JSON** and **one JPG** for that run.
 
-For each run it saves:
+## 1) Install
 
-- `results/timeline.json` (full decision timeline)
-- one folder per interval under `results/`, each containing:
-  - `interval_metrics.json`
-  - `top_fire.jpg` (or fallback first sampled frame if no fire box is detected)
+From repository root:
 
-No overall `video_metrics.json` and no overall top-fire image are written.
-No per-box detection dump is written to JSON.
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
-## OpenAI integration behavior (uncertain intervals + local emergency verification)
+## 2) OpenAI key setup (optional)
 
-OpenAI is called when either: (1) an interval is uncertain by `is_uncertain(...)`, or (2) local-only scoring would classify the interval as `Emergency` (forced contextual verification).
-
-When OpenAI is used, context now takes priority in blending: `w_context=0.72` with a minimum effective context weight floor (`min_context_weight=0.70`). If OpenAI scenario is `Emergency`, final score is clamped to be at least the OpenAI `context_score`.
-
-If triggered (uncertain or local Emergency) and API key exists:
-- interval top-fire frame + metrics are sent to OpenAI.
-- OpenAI returns machine-readable:
-  - `context_score`
-  - `scenario` (`No Fire Risk`, `Elevated Risk`, `Hazard`, `Emergency`)
-  - `confidence`
-  - `rationale`
-
-If triggered and API key is missing:
-- OpenAI is skipped.
-- output records local-only mode.
-
-If not uncertain and not local Emergency:
-- OpenAI is skipped by design.
-
-### Exact uncertainty trigger criteria (from `classification/configs/scoring.yaml`)
-
-An interval triggers OpenAI reasoning when **any one** of these is true:
-
-0. **Local emergency verification trigger**
-   - local-only scenario rank is `Emergency` before OpenAI blending
-
-1. **Danger index mid-band**
-   - `0.20 <= dangerous_fire_index <= 0.90`
-2. **Fire vs controlled is near tie**
-   - `abs(fire_vs_controlled_gap) < 0.24`
-3. **Smoke present while controlled fire dominates**
-   - `smoke >= 0.08` **and** `controlled_fire >= 0.30`
-4. **High flicker + moderate spread conflict**
-   - `flicker_normalized >= 0.45` **and** `0.08 <= spread_normalized <= 0.75`
-
-If none of the above are true, OpenAI is not called for that interval unless local-only rank is Emergency.
-
-### Model selection for OpenAI
-
-OpenAI model choice is configurable in `classification/configs/scoring.yaml`:
-
-- default uncertain intervals: `openai.model` (default `gpt-4o-mini`)
-- higher-risk uncertain intervals: `openai.high_risk_model` (default `gpt-4o`) when local score exceeds `openai.high_risk_switch_threshold` (`0.55`)
-
-
-## Configure environment
-
-### 1) Create `.env`
-
-Copy `.env.example` to `.env` and fill your key:
+OpenAI is optional. Without a key, the script runs local-only.
 
 ```bash
 cp .env.example .env
-# if dotfiles are hidden in your UI: cp env.example .env
+# fallback if dotfiles are hidden: cp env.example .env
 ```
+
+Then edit `.env`:
 
 ```env
 OPENAI_API_KEY=your_openai_api_key_here
 ```
 
-### 2) Set env var manually (optional)
+### Manual env var (optional alternative)
 
 - macOS/Linux:
   ```bash
@@ -87,110 +42,101 @@ OPENAI_API_KEY=your_openai_api_key_here
   $env:OPENAI_API_KEY="..."
   ```
 
-## Run with a test video
+## 3) Run command (core usage)
 
 ```bash
 python classification/analyze_video.py \
-  --video /path/to/test_video.mp4 \
+  --video /path/to/video.mp4 \
   --weights classification_model.pt \
-  --clip-seconds 10 \
-  --break-seconds 10 \
+  --start-seconds 0 \
+  --analyze-seconds 10 \
   --sample-fps 2 \
   --conf 0.25 \
   --results-dir results \
-  --timeline-out results/timeline.json \
+  --run-label incident_cam01_0000_0010 \
   --camera-id cam_01 \
-  --location-type warehouse \
-  --demo-mode
+  --location-type warehouse
 ```
 
-`--demo-mode` forces local-only behavior even if an API key is present.
+PowerShell one-line example:
 
-## Where to read the interval aggregate numbers
+```powershell
+python classification/analyze_video.py --video video.mp4 --weights classification_model.pt --start-seconds 0 --analyze-seconds 10 --sample-fps 2 --conf 0.25 --results-dir results --run-label incident_cam01_0000_0010 --camera-id cam_01 --location-type warehouse
+```
 
-In each interval folder (`results/incident_interval_.../`), `interval_metrics.json` includes:
+## 4) Flags reference
 
-- `openai.eligible` (whether interval met criteria to call OpenAI)
-- `openai.trigger_reason` (`uncertainty`, `emergency_verification`, or `none`)
-- `openai.note` (explicit skip reason such as `demo_mode` or missing key)
+- `--video` (required): input video file.
+- `--weights`: model path (default `classification_model.pt`).
+- `--start-seconds`: analysis window start offset in video.
+- `--analyze-seconds`: analysis window duration.
+- `--sample-fps`: frame sampling rate in the selected window.
+- `--conf`: YOLO confidence threshold.
+- `--results-dir`: parent output folder.
+- `--run-label`: output subfolder name. If omitted, auto-generated.
+- `--camera-id`, `--location-type`: metadata forwarded into output/OpenAI payload.
+- `--demo-mode`: force local-only mode even if API key exists.
 
-- `summary.aggregate_relative_confidence.controlled_fire`
-- `summary.aggregate_relative_confidence.fire`
-- `summary.aggregate_relative_confidence.smoke`
-- `summary.risk_numbers.dangerous_fire_index`
-- `summary.risk_numbers.fire_vs_controlled_gap`
-- `summary.risk_numbers.fire_to_controlled_ratio`
-- `decision.local_score`
-- `decision.final_score`
-- `decision.decision_confidence`
-- `decision.scenario_rank`
+## 5) Output layout (one run)
 
-## Timeline output
+For each execution, files are written to:
 
-`timeline.json` includes full sequence and summary:
+`<results-dir>/<run-label>/`
 
-- `event_id`
-- `interval_seconds`
-- `timeline[]` entries with:
-  - aggregate confidences
-  - risk numbers
-  - openai block
-  - decision block
-- top-level summary:
-  - `max_risk`
-  - `time_to_first_escalation`
-  - `scenario_counts`
+with:
 
-## Scoring overview
+- `metrics.json`
+- `top_fire.jpg` (fallback: first sampled frame when no fire box is detected)
 
-`local_score` uses these configured weights:
+No timeline file and no multi-interval files are produced.
 
-- `0.62 * dangerous_fire_index`
-- `0.36 * spread_normalized`
-- `0.28 * smoke`
-- `0.24 * max(fire_vs_controlled_gap, 0)`
-- `0.22 * min(fire_to_controlled_ratio, 5)/5`
-- penalty: `0.03 * flicker_normalized * max(0, 1-fire)`
+## 6) What is inside `metrics.json`
 
-Then:
-- if OpenAI used: `final_score = (1-w)*local + w*context`, with `w=0.72` and minimum context-priority floor (`min_context_weight=0.70`).
-- if OpenAI skipped: `final_score = local_score`.
+Top-level keys:
 
-`decision_confidence` is separate from detection confidence and measures consistency/decisiveness of the combined signals.
+- `analysis` (window label/start/end/duration/output path)
+- `input` (video/model/runtime mode metadata)
+- `sampling` (sample fps, sampled frame count, conf threshold)
+- `summary` (aggregate confidences + risk variables)
+- `openai` (if used/skipped, reason, context score/scenario/confidence/rationale)
+- `decision` (`local_score`, `final_score`, `decision_confidence`, `scenario_rank`)
+- `artifacts` (json/jpg output paths)
 
-### Exact scoring level ranges and hysteresis
+## 7) OpenAI usage rules
 
-Configured thresholds:
+OpenAI is called only when:
 
-- **Emergency** (uncontrolled growth / strongly dangerous)
-  - enter when `final_score >= 0.54`
-  - remain Emergency while `final_score >= 0.46`
-- **Hazard** (fire present and concerning, potentially controlled but significant)
-  - enter when `final_score >= 0.26` (and not Emergency)
-  - remain Hazard while `final_score >= 0.20`
-- **Elevated Risk** (smoke or weak fire evidence, low certainty of active/uncontrolled fire)
-  - for low-risk smoke-heavy scenes with minimal visible fire: `final_score >= 0.08`, `smoke >= 0.10`, and `fire <= 0.12`
-- **No Fire Risk**
-  - when `final_score <= 0.04`
+1. uncertainty conditions are met, **or**
+2. local-only rank is `Emergency` (forced context verification).
 
-## Console output behavior
+If key/client is unavailable (or `--demo-mode` is set), OpenAI is skipped and recorded in `openai.note`.
 
-The CLI now prints only compact per-interval decisions (no full metrics dump), one line per interval:
+## 8) Scoring and scenario levels
 
-- interval label
-- `openai_used=true/false`
-- `scenario`
-- `final_score`
-- `decision_confidence`
+Configured in `classification/configs/scoring.yaml`:
 
-Use JSON outputs for full structured data.
+- local score weights (`local_score_weights`)
+- uncertainty triggers (`uncertainty`)
+- scenario thresholds/hysteresis (`scenario_thresholds`)
+- context blend behavior (`context_weighting`)
 
-## Troubleshooting
+Current level behavior:
 
-If you hit `ModuleNotFoundError: No module named 'dotenv'`:
+- `No Fire Risk`: very low scores.
+- `Elevated Risk`: low-risk smoke-heavy, minimal visible fire.
+- `Hazard`: visible fire / meaningful risk.
+- `Emergency`: higher-risk uncontrolled growth.
+
+## 9) Troubleshooting
+
+If you see missing module errors:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-`python-dotenv` is used for `.env` loading. If unavailable, the analyzer now falls back to local-only environment behavior, but full install is recommended.
+If OpenAI is not called when expected, check in `metrics.json`:
+
+- `openai.eligible`
+- `openai.trigger_reason`
+- `openai.note`
