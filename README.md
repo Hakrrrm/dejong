@@ -101,6 +101,29 @@ Configured in `classification/configs/scoring.yaml`:
 - normal uncertain intervals use `gpt-4o-mini`
 - higher-risk uncertain intervals can switch to `gpt-4o` based on `high_risk_switch_threshold`
 
+## Exact OpenAI trigger criteria and score ranges
+
+OpenAI is only called for uncertain intervals. Uncertainty is triggered when any of these are true:
+- `0.35 <= dangerous_fire_index <= 0.75`
+- `abs(fire_vs_controlled_gap) < 0.10`
+- `smoke >= 0.20` and `controlled_fire >= 0.45`
+- `flicker_normalized >= 0.65` and `0.20 <= spread_normalized <= 0.55`
+
+Scenario rank thresholds (with hysteresis):
+- Emergency enter `>= 0.78`, stay while `>= 0.70`
+- Hazard enter `>= 0.52`, stay while `>= 0.45`
+- Elevated Risk fallback below Hazard
+
+## Console output behavior
+
+`classification/analyze_video.py` prints one compact decision line per interval only:
+- interval label
+- `openai_used`
+- `scenario`
+- `final_score`
+- `decision_confidence`
+
+Full metrics remain in JSON outputs.
 
 ## Troubleshooting
 

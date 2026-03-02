@@ -613,14 +613,19 @@ def main() -> None:
     args = parse_args()
     metrics = analyze_video(args)
     print("Analysis complete")
-    print(f"Overall metrics saved to: {args.json_out}")
-    print(f"Timeline saved to: {args.timeline_out}")
-    print(f"Interval metrics folder: {args.interval_json_dir}")
-    print(f"Interval top-frame folder: {args.interval_top_frame_dir}")
     print(f"Runtime mode: {metrics['input']['runtime_mode']}")
-    if metrics["summary"]["top_fire_frame"]["path"]:
-        print(f"Top fire frame saved to: {metrics['summary']['top_fire_frame']['path']}")
-    print(json.dumps(metrics["summary"], indent=2))
+    print(f"Timeline saved to: {args.timeline_out}")
+
+    for row in metrics.get("interval_outputs", []):
+        openai_used = bool(row.get("openai", {}).get("used", False))
+        decision = row.get("decision", {})
+        print(
+            f"{row.get('label', 'interval')}: "
+            f"openai_used={openai_used}, "
+            f"scenario={decision.get('scenario_rank')}, "
+            f"final_score={decision.get('final_score', 0.0):.3f}, "
+            f"decision_confidence={decision.get('decision_confidence', 0.0):.3f}"
+        )
 
 
 if __name__ == "__main__":

@@ -33,6 +33,21 @@ If uncertain and API key is missing:
 If not uncertain:
 - OpenAI is skipped by design.
 
+### Exact uncertainty trigger criteria (from `classification/configs/scoring.yaml`)
+
+An interval triggers OpenAI reasoning when **any one** of these is true:
+
+1. **Danger index mid-band**
+   - `0.35 <= dangerous_fire_index <= 0.75`
+2. **Fire vs controlled is near tie**
+   - `abs(fire_vs_controlled_gap) < 0.10`
+3. **Smoke present while controlled fire dominates**
+   - `smoke >= 0.20` **and** `controlled_fire >= 0.45`
+4. **High flicker + moderate spread conflict**
+   - `flicker_normalized >= 0.65` **and** `0.20 <= spread_normalized <= 0.55`
+
+If none of the above are true, OpenAI is not called for that interval.
+
 ### Model selection for OpenAI
 
 OpenAI model choice is configurable in `classification/configs/scoring.yaml`:
@@ -122,12 +137,45 @@ In each interval JSON:
 
 ## Scoring overview
 
-- `local_score` is computed from dangerous index + spread + smoke + fire/control gap + ratio + flicker penalty.
-- if OpenAI used: `final_score = (1-w)*local + w*context` (optionally scaled by OpenAI confidence).
-- if OpenAI skipped: `final_score = local_score`.
-- `decision_confidence` is separate from detection confidence and measures decisiveness/consistency of signals.
-- scenario rank always assigned: `Emergency`, `Hazard`, or `Elevated Risk` with hysteresis thresholds from config.
+`local_score` uses these configured weights:
 
+- `0.45 * dangerous_fire_index`
+- `0.20 * spread_normalized`
+- `0.15 * smoke`
+- `0.12 * max(fire_vs_controlled_gap, 0)`
+- `0.10 * min(fire_to_controlled_ratio, 5)/5`
+- penalty: `0.08 * flicker_normalized * max(0, 1-fire)`
+
+Then:
+- if OpenAI used: `final_score = (1-w)*local + w*context`, with `w=0.35` (optionally multiplied by OpenAI confidence).
+- if OpenAI skipped: `final_score = local_score`.
+
+`decision_confidence` is separate from detection confidence and measures consistency/decisiveness of the combined signals.
+
+### Exact scoring level ranges and hysteresis
+
+Configured thresholds:
+
+- **Emergency**
+  - enter when `final_score >= 0.78`
+  - remain Emergency while `final_score >= 0.70`
+- **Hazard**
+  - enter when `final_score >= 0.52` (and not Emergency)
+  - remain Hazard while `final_score >= 0.45`
+- **Elevated Risk**
+  - default fallback for lower scores (`>= 0.20` target band; implementation currently always falls back to this rank)
+
+## Console output behavior
+
+The CLI now prints only compact per-interval decisions (no full metrics dump), one line per interval:
+
+- interval label
+- `openai_used=true/false`
+- `scenario`
+- `final_score`
+- `decision_confidence`
+
+Use JSON outputs for full structured data.
 
 ## Troubleshooting
 
