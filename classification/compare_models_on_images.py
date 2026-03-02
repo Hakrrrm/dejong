@@ -16,6 +16,38 @@ from ultralytics import YOLO
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
 
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _candidate_paths(raw_path: Path) -> list[Path]:
+    """Generate likely filesystem locations for a user-provided path."""
+    candidates: list[Path] = []
+    if raw_path.is_absolute():
+        candidates.append(raw_path)
+        return candidates
+
+    candidates.append(raw_path)
+    candidates.append(Path.cwd() / raw_path)
+    candidates.append(REPO_ROOT / raw_path)
+    candidates.append(Path(__file__).resolve().parent / raw_path)
+    return candidates
+
+
+def resolve_existing_path(raw_path: Path, kind: str) -> Path:
+    checked: list[str] = []
+    for candidate in _candidate_paths(raw_path):
+        resolved = candidate.resolve()
+        checked.append(str(resolved))
+        if resolved.exists():
+            return resolved
+
+    searched = "\n  - ".join(["", *checked])
+    raise FileNotFoundError(
+        f"{kind} not found: {raw_path}\nSearched in:{searched}\n"
+        "Tip: pass an absolute path if your file is outside the repository."
+    )
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -49,12 +81,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def validate_inputs(args: argparse.Namespace) -> None:
-    if not args.source_dir.exists() or not args.source_dir.is_dir():
-        raise FileNotFoundError(f"Source image folder not found: {args.source_dir}")
-    if not args.improved_weights.exists():
-        raise FileNotFoundError(f"Improved weights not found: {args.improved_weights}")
-    if not args.baseline_weights.exists():
-        raise FileNotFoundError(f"Baseline weights not found: {args.baseline_weights}")
+    args.source_dir = resolve_existing_path(args.source_dir, "Source image folder")
+    if not args.source_dir.is_dir():
+        raise NotADirectoryError(f"Source image folder is not a directory: {args.source_dir}")
+
+    args.improved_weights = resolve_existing_path(args.improved_weights, "Improved weights")
+    args.baseline_weights = resolve_existing_path(args.baseline_weights, "Baseline weights")
 
 
 def list_images(source_dir: Path) -> list[Path]:

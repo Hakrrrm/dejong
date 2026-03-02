@@ -166,3 +166,12 @@ Output structure:
 - `test_results/classification_model/` → annotated images named like `image01__classification_model.jpg`
 - `test_results/best_nano_111/` → annotated images named like `image01__best_nano_111.jpg`
 - `test_results/comparison_summary.json` → compact per-image detection count/confidence summary for both models
+
+If you see a weights not found error, pass absolute paths explicitly:
+
+```bash
+python classification/compare_models_on_images.py \
+  --source-dir /absolute/path/to/sample_images \
+  --improved-weights /absolute/path/to/classification_model.pt \
+  --baseline-weights /absolute/path/to/best_nano_111.pt
+```
