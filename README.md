@@ -18,7 +18,7 @@ pip install -r requirements.txt
 > If `.env.example` is not visible in your GitHub file list, use `env.example` (same content).
 
 
-OpenAI is optional and used for uncertain intervals plus forced verification of any interval that would be locally classified as Emergency.
+OpenAI is optional and used for uncertain intervals plus forced verification of any interval that would be locally classified as Emergency. Context is now prioritized in blending (`w_context=0.72` with minimum context-weight floor `0.70`).
 
 1. Copy env template:
 
@@ -45,11 +45,8 @@ python classification/analyze_video.py \
   --break-seconds 10 \
   --sample-fps 2 \
   --conf 0.25 \
-  --json-out classification/video_metrics.json \
-  --interval-json-dir classification/interval_metrics \
-  --interval-top-frame-dir classification/interval_top_fire_frames \
-  --top-fire-frame-out classification/top_fire_frame.jpg \
-  --timeline-out classification/timeline.json \
+  --results-dir results \
+  --timeline-out results/timeline.json \
   --camera-id cam_01 \
   --location-type warehouse \
   --demo-mode
@@ -59,13 +56,12 @@ python classification/analyze_video.py \
 
 ## What classification outputs
 
-- `classification/video_metrics.json` (overall compact aggregate)
-- `classification/timeline.json` (full per-interval decision timeline)
-- one compact interval JSON per interval in `classification/interval_metrics/`
-- one top-fire JPG per interval in `classification/interval_top_fire_frames/`
-- one global top-fire JPG in `classification/top_fire_frame.jpg`
+- `results/timeline.json` (full per-interval decision timeline)
+- one folder per interval under `results/` containing:
+  - `interval_metrics.json`
+  - `top_fire.jpg`
 
-JSON is compact/aggregate-only (no per-box timestamp dump).
+JSON is compact/aggregate-only (no per-box timestamp dump), and only interval artifacts are saved.
 
 ### Key per-interval numeric fields
 

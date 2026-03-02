@@ -1,11 +1,10 @@
 """Interval-based video fire analysis with optional OpenAI context tie-breaker.
 
 Outputs:
-- overall compact JSON (--json-out)
-- per-interval compact JSON (--interval-json-dir)
-- one top-fire JPG per interval (--interval-top-frame-dir)
-- one global top-fire JPG (--top-fire-frame-out)
-- consolidated timeline JSON (--timeline-out)
+- one folder per interval under --results-dir, each containing:
+  - interval JSON
+  - interval top-fire JPG
+- consolidated timeline JSON under --results-dir
 """
 
 from __future__ import annotations
@@ -118,11 +117,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--break-seconds", type=float, default=10.0)
     parser.add_argument("--sample-fps", type=float, default=2.0)
     parser.add_argument("--conf", type=float, default=0.25)
-    parser.add_argument("--json-out", type=Path, default=Path("classification/video_metrics.json"))
-    parser.add_argument("--interval-json-dir", type=Path, default=Path("classification/interval_metrics"))
-    parser.add_argument("--top-fire-frame-out", type=Path, default=Path("classification/top_fire_frame.jpg"))
-    parser.add_argument("--interval-top-frame-dir", type=Path, default=Path("classification/interval_top_fire_frames"))
-    parser.add_argument("--timeline-out", type=Path, default=Path("classification/timeline.json"))
+    parser.add_argument("--results-dir", type=Path, default=Path("results"))
+    parser.add_argument("--timeline-out", type=Path, default=None, help="Optional explicit timeline.json path (defaults to <results-dir>/timeline.json)")
     parser.add_argument("--scoring-config", type=Path, default=Path("classification/configs/scoring.yaml"))
     parser.add_argument("--camera-id", type=str, default="unknown_camera")
     parser.add_argument("--location-type", type=str, default="unknown_location")
@@ -339,9 +335,6 @@ def analyze_video(args: argparse.Namespace) -> dict:
     overall_stats = AggregateStats()
     interval_buckets: dict[int, dict] = {}
 
-    top_fire_frame_score = -1.0
-    top_fire_frame_timestamp = None
-    top_fire_frame = None
 
     frame_idx = 0
     while True:
@@ -390,11 +383,6 @@ def analyze_video(args: argparse.Namespace) -> dict:
             _update_stats(bucket["stats"], frame_signals)
 
             frame_fire_score = _fire_frame_score(frame_signals)
-            if frame_fire_score > top_fire_frame_score:
-                top_fire_frame_score = frame_fire_score
-                top_fire_frame_timestamp = t
-                top_fire_frame = frame.copy()
-
             if frame_fire_score > bucket["top_fire_frame_score"]:
                 bucket["top_fire_frame_score"] = frame_fire_score
                 bucket["top_fire_frame_timestamp"] = t
@@ -404,21 +392,8 @@ def analyze_video(args: argparse.Namespace) -> dict:
 
     cap.release()
 
-    top_fire_frame_path = None
-    if top_fire_frame is not None:
-        args.top_fire_frame_out.parent.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(args.top_fire_frame_out), top_fire_frame)
-        top_fire_frame_path = str(args.top_fire_frame_out)
-
-    overall_summary = _summarize_stats(overall_stats)
-    overall_summary["top_fire_frame"] = {
-        "path": top_fire_frame_path,
-        "timestamp_s": top_fire_frame_timestamp,
-        "fire_frame_score": max(0.0, top_fire_frame_score),
-    }
-
-    args.interval_json_dir.mkdir(parents=True, exist_ok=True)
-    args.interval_top_frame_dir.mkdir(parents=True, exist_ok=True)
+    # interval-only outputs under results dir
+    args.results_dir.mkdir(parents=True, exist_ok=True)
 
     openai_client = None if args.demo_mode else get_openai_client()
     openai_enabled = (openai_client is not None) and (not args.demo_mode)
@@ -437,9 +412,12 @@ def analyze_video(args: argparse.Namespace) -> dict:
         interval_label = f"interval_{meta.index:04d}"
         interval_base = f"incident_{interval_label}_{int(meta.start_s):06d}s_{int(meta.end_s):06d}s"
 
+        interval_dir = args.results_dir / interval_base
+        interval_dir.mkdir(parents=True, exist_ok=True)
+
         interval_top_fire_frame_path = None
         if bucket["top_fire_frame"] is not None:
-            interval_top_frame_path = args.interval_top_frame_dir / f"{interval_base}_top_fire.jpg"
+            interval_top_frame_path = interval_dir / "top_fire.jpg"
             cv2.imwrite(str(interval_top_frame_path), bucket["top_fire_frame"])
             interval_top_fire_frame_path = str(interval_top_frame_path)
 
@@ -493,8 +471,14 @@ def analyze_video(args: argparse.Namespace) -> dict:
         if openai_payload["used"]:
             context_weight = w_context
             if scale_by_openai_confidence:
-                context_weight *= float(openai_payload["confidence"])
+                confidence = float(openai_payload.get("confidence", 0.0))
+                context_weight *= max(confidence, float(cfg["context_weighting"].get("min_openai_confidence_floor", 0.75)))
+            context_weight = max(context_weight, float(cfg["context_weighting"].get("min_context_weight", 0.70)))
+            context_weight = min(context_weight, 0.95)
             final_score = (1.0 - context_weight) * local_score + context_weight * float(openai_payload["context_score"])
+
+            if openai_payload.get("scenario") == "Emergency":
+                final_score = max(final_score, float(openai_payload.get("context_score", 0.0)))
         else:
             final_score = local_score
 
@@ -532,7 +516,7 @@ def analyze_video(args: argparse.Namespace) -> dict:
             "decision": decision,
         }
 
-        interval_path = args.interval_json_dir / f"{interval_base}.json"
+        interval_path = interval_dir / "interval_metrics.json"
         interval_path.write_text(json.dumps(interval_payload, indent=2))
 
         interval_outputs.append(
@@ -579,12 +563,8 @@ def analyze_video(args: argparse.Namespace) -> dict:
             "sampled_frames": overall_stats.sampled_frames,
             "confidence_threshold": args.conf,
         },
-        "summary": overall_summary,
         "interval_outputs": interval_outputs,
     }
-
-    args.json_out.parent.mkdir(parents=True, exist_ok=True)
-    args.json_out.write_text(json.dumps(metrics, indent=2))
 
     # timeline.json
     scenario_counts = {"Emergency": 0, "Hazard": 0, "Elevated Risk": 0, "No Fire Risk": 0}
@@ -610,8 +590,10 @@ def analyze_video(args: argparse.Namespace) -> dict:
             "runtime_mode": runtime_mode,
         },
     }
-    args.timeline_out.parent.mkdir(parents=True, exist_ok=True)
-    args.timeline_out.write_text(json.dumps(timeline, indent=2))
+    timeline_out = args.timeline_out or (args.results_dir / "timeline.json")
+    timeline_out.parent.mkdir(parents=True, exist_ok=True)
+    timeline_out.write_text(json.dumps(timeline, indent=2))
+    metrics["timeline_path"] = str(timeline_out)
 
     return metrics
 
@@ -621,7 +603,7 @@ def main() -> None:
     metrics = analyze_video(args)
     print("Analysis complete")
     print(f"Runtime mode: {metrics['input']['runtime_mode']}")
-    print(f"Timeline saved to: {args.timeline_out}")
+    print(f"Timeline saved to: {metrics.get('timeline_path')}")
 
     for row in metrics.get("interval_outputs", []):
         openai_used = bool(row.get("openai", {}).get("used", False))

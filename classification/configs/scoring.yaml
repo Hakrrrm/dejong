@@ -22,8 +22,10 @@ local_score_weights:
   flicker_penalty: 0.03
 
 context_weighting:
-  w_context: 0.58
+  w_context: 0.72
   scale_by_openai_confidence: true
+  min_context_weight: 0.70
+  min_openai_confidence_floor: 0.75
 
 scenario_thresholds:
   emergency_enter: 0.54

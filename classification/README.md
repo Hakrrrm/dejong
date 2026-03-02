@@ -6,17 +6,19 @@ This module runs interval-based video risk analysis and writes compact outputs f
 
 For each run it saves:
 
-- `video_metrics.json` (overall aggregate)
-- one JSON per interval in `classification/interval_metrics/`
-- one top-fire image per interval in `classification/interval_top_fire_frames/`
-- one overall top-fire image (`classification/top_fire_frame.jpg`)
-- `timeline.json` (full decision timeline)
+- `results/timeline.json` (full decision timeline)
+- one folder per interval under `results/`, each containing:
+  - `interval_metrics.json`
+  - `top_fire.jpg`
 
+No overall `video_metrics.json` and no overall top-fire image are written.
 No per-box detection dump is written to JSON.
 
 ## OpenAI integration behavior (uncertain intervals + local emergency verification)
 
 OpenAI is called when either: (1) an interval is uncertain by `is_uncertain(...)`, or (2) local-only scoring would classify the interval as `Emergency` (forced contextual verification).
+
+When OpenAI is used, context now takes priority in blending: `w_context=0.72` with a minimum effective context weight floor (`min_context_weight=0.70`). If OpenAI scenario is `Emergency`, final score is clamped to be at least the OpenAI `context_score`.
 
 If triggered (uncertain or local Emergency) and API key exists:
 - interval top-fire frame + metrics are sent to OpenAI.
@@ -95,11 +97,8 @@ python classification/analyze_video.py \
   --break-seconds 10 \
   --sample-fps 2 \
   --conf 0.25 \
-  --json-out classification/video_metrics.json \
-  --interval-json-dir classification/interval_metrics \
-  --interval-top-frame-dir classification/interval_top_fire_frames \
-  --top-fire-frame-out classification/top_fire_frame.jpg \
-  --timeline-out classification/timeline.json \
+  --results-dir results \
+  --timeline-out results/timeline.json \
   --camera-id cam_01 \
   --location-type warehouse \
   --demo-mode
@@ -109,7 +108,7 @@ python classification/analyze_video.py \
 
 ## Where to read the interval aggregate numbers
 
-In each interval JSON:
+In each interval folder (`results/incident_interval_.../`), `interval_metrics.json` includes:
 
 - `summary.aggregate_relative_confidence.controlled_fire`
 - `summary.aggregate_relative_confidence.fire`
@@ -150,7 +149,7 @@ In each interval JSON:
 - penalty: `0.03 * flicker_normalized * max(0, 1-fire)`
 
 Then:
-- if OpenAI used: `final_score = (1-w)*local + w*context`, with `w=0.58` (optionally multiplied by OpenAI confidence).
+- if OpenAI used: `final_score = (1-w)*local + w*context`, with `w=0.72` and minimum context-priority floor (`min_context_weight=0.70`).
 - if OpenAI skipped: `final_score = local_score`.
 
 `decision_confidence` is separate from detection confidence and measures consistency/decisiveness of the combined signals.
