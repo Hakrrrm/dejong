@@ -27,17 +27,60 @@ except ImportError:  # optional in local-only runtime
         return False
 from ultralytics import YOLO
 
-from openai_reasoner.client import get_openai_client
-from openai_reasoner.reasoner import reason_with_openai
-from scoring import (
-    LocalScoreWeights,
-    ScenarioThresholds,
-    UncertaintyThresholds,
-    assign_scenario_rank,
-    compute_decision_confidence,
-    compute_local_score,
-    is_uncertain,
-)
+
+
+def _bootstrap_import_paths() -> None:
+    """Make direct script execution robust on Windows/Linux shells."""
+    import sys
+
+    this_dir = Path(__file__).resolve().parent
+    repo_root = this_dir.parent
+
+    for candidate in (repo_root, this_dir):
+        candidate_str = str(candidate)
+        if candidate_str not in sys.path:
+            sys.path.insert(0, candidate_str)
+
+
+_bootstrap_import_paths()
+
+try:
+    from classification.src.openai_reasoner.client import get_openai_client
+    from classification.src.openai_reasoner.reasoner import reason_with_openai
+    from classification.src.scoring import (
+        LocalScoreWeights,
+        ScenarioThresholds,
+        UncertaintyThresholds,
+        assign_scenario_rank,
+        compute_decision_confidence,
+        compute_local_score,
+        is_uncertain,
+    )
+except ModuleNotFoundError:
+    try:
+        from src.openai_reasoner.client import get_openai_client
+        from src.openai_reasoner.reasoner import reason_with_openai
+        from src.scoring import (
+            LocalScoreWeights,
+            ScenarioThresholds,
+            UncertaintyThresholds,
+            assign_scenario_rank,
+            compute_decision_confidence,
+            compute_local_score,
+            is_uncertain,
+        )
+    except ModuleNotFoundError:
+        from openai_reasoner.client import get_openai_client
+        from openai_reasoner.reasoner import reason_with_openai
+        from scoring import (
+            LocalScoreWeights,
+            ScenarioThresholds,
+            UncertaintyThresholds,
+            assign_scenario_rank,
+            compute_decision_confidence,
+            compute_local_score,
+            is_uncertain,
+        )
 
 CLASS_NAMES = {0: "controlled_fire", 1: "fire", 2: "smoke"}
 
@@ -291,7 +334,6 @@ def analyze_video(args: argparse.Namespace) -> dict:
     duration_s = (total_frames / fps) if fps > 0 else 0.0
 
     model = YOLO(str(args.weights))
-    model.to("cpu")
     sample_stride = max(1, int(round(fps / max(args.sample_fps, 0.01))))
 
     overall_stats = AggregateStats()
