@@ -1,3 +1,13 @@
 .env
 __pycache__/
 *.pyc
+# Generated outputs
+classification/interval_metrics/
+classification/interval_top_fire_frames/
+classification/timeline.json
+classification/top_fire_frame.jpg
+classification/video_metrics.json
+
+# Local test files
+video.MP4
+.venv/

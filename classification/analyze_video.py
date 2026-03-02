@@ -27,9 +27,9 @@ except ImportError:  # optional in local-only runtime
         return False
 from ultralytics import YOLO
 
-from classification.src.openai_reasoner.client import get_openai_client
-from classification.src.openai_reasoner.reasoner import reason_with_openai
-from classification.src.scoring import (
+from openai_reasoner.client import get_openai_client
+from openai_reasoner.reasoner import reason_with_openai
+from scoring import (
     LocalScoreWeights,
     ScenarioThresholds,
     UncertaintyThresholds,
@@ -291,6 +291,7 @@ def analyze_video(args: argparse.Namespace) -> dict:
     duration_s = (total_frames / fps) if fps > 0 else 0.0
 
     model = YOLO(str(args.weights))
+    model.to("cpu")
     sample_stride = max(1, int(round(fps / max(args.sample_fps, 0.01))))
 
     overall_stats = AggregateStats()
