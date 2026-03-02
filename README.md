@@ -106,8 +106,8 @@ OpenAI is called when intervals are uncertain OR locally Emergency. Uncertainty 
 - `flicker_normalized >= 0.45` and `0.08 <= spread_normalized <= 0.75`
 
 Scenario rank thresholds (with hysteresis):
-- Emergency enter `>= 0.54`, stay while `>= 0.46`
-- Hazard enter `>= 0.26`, stay while `>= 0.20`
+- Emergency enter `>= 0.46`, stay while `>= 0.40`
+- Hazard enter `>= 0.22`, stay while `>= 0.16`
 - Elevated Risk for low-risk smoke-heavy scenes with minimal visible fire (`score >= 0.08`, `smoke >= 0.10`, `fire <= 0.12`); No Fire Risk for very low scores (`<= 0.04`)
 
 ## Console output behavior

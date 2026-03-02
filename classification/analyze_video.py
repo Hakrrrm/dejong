@@ -403,6 +403,7 @@ def analyze_video(args: argparse.Namespace) -> dict:
 
     openai_client = None if args.demo_mode else get_openai_client()
     openai_enabled = (openai_client is not None) and (not args.demo_mode)
+    openai_unavailable_reason = "demo_mode" if args.demo_mode else ("missing_api_key_or_client_init_failure" if openai_client is None else "")
     runtime_mode = "demo_local" if args.demo_mode or not openai_enabled else "openai_enabled"
     context_cfg = cfg["context_weighting"]
     w_context = float(context_cfg["w_context"])
@@ -448,7 +449,7 @@ def analyze_video(args: argparse.Namespace) -> dict:
         emergency_needs_verification = local_pre_openai_rank == "Emergency"
         should_call_openai = uncertain or emergency_needs_verification
 
-        openai_payload = {"used": False, "context_score": 0.0, "scenario": None, "confidence": 0.0, "rationale": [], "note": ""}
+        openai_payload = {"used": False, "eligible": should_call_openai, "trigger_reason": "emergency_verification" if emergency_needs_verification else ("uncertainty" if uncertain else "none"), "context_score": 0.0, "scenario": None, "confidence": 0.0, "rationale": [], "note": ""}
 
         if should_call_openai and openai_enabled and interval_top_fire_frame_path is not None:
             model_name = cfg["openai"]["model"]
@@ -473,9 +474,9 @@ def analyze_video(args: argparse.Namespace) -> dict:
             openai_payload = {"used": True, **openai_result}
         elif should_call_openai and not openai_enabled:
             if emergency_needs_verification:
-                openai_payload["note"] = "local Emergency flagged; OpenAI verification skipped in demo/local-only mode"
+                openai_payload["note"] = f"local Emergency flagged; OpenAI verification skipped ({openai_unavailable_reason})"
             else:
-                openai_payload["note"] = "uncertain interval; OpenAI skipped in demo/local-only mode"
+                openai_payload["note"] = f"uncertain interval; OpenAI skipped ({openai_unavailable_reason})"
         else:
             openai_payload["note"] = "interval not uncertain and not local-Emergency; OpenAI skipped"
 
@@ -566,6 +567,8 @@ def analyze_video(args: argparse.Namespace) -> dict:
             "camera_id": args.camera_id,
             "location_type": args.location_type,
             "runtime_mode": runtime_mode,
+            "openai_enabled": openai_enabled,
+            "openai_unavailable_reason": openai_unavailable_reason or None,
         },
         "sampling": {
             "clip_seconds": args.clip_seconds,
@@ -597,8 +600,9 @@ def analyze_video(args: argparse.Namespace) -> dict:
             "max_risk": max_risk,
             "time_to_first_escalation": first_escalation,
             "scenario_counts": scenario_counts,
-            "openai_enabled": openai_enabled,
             "runtime_mode": runtime_mode,
+            "openai_enabled": openai_enabled,
+            "openai_unavailable_reason": openai_unavailable_reason or None,
         },
     }
     timeline_out = args.timeline_out or (args.results_dir / "timeline.json")

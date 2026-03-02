@@ -28,10 +28,10 @@ context_weighting:
   min_openai_confidence_floor: 0.75
 
 scenario_thresholds:
-  emergency_enter: 0.54
-  emergency_exit: 0.46
-  hazard_enter: 0.26
-  hazard_exit: 0.20
+  emergency_enter: 0.46
+  emergency_exit: 0.40
+  hazard_enter: 0.22
+  hazard_exit: 0.16
   elevated_enter: 0.08
   no_fire_risk_max: 0.04
   elevated_max_fire_conf: 0.12

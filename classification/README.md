@@ -110,6 +110,10 @@ python classification/analyze_video.py \
 
 In each interval folder (`results/incident_interval_.../`), `interval_metrics.json` includes:
 
+- `openai.eligible` (whether interval met criteria to call OpenAI)
+- `openai.trigger_reason` (`uncertainty`, `emergency_verification`, or `none`)
+- `openai.note` (explicit skip reason such as `demo_mode` or missing key)
+
 - `summary.aggregate_relative_confidence.controlled_fire`
 - `summary.aggregate_relative_confidence.fire`
 - `summary.aggregate_relative_confidence.smoke`
