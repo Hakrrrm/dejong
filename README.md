@@ -59,7 +59,7 @@ python classification/analyze_video.py \
 - `results/timeline.json` (full per-interval decision timeline)
 - one folder per interval under `results/` containing:
   - `interval_metrics.json`
-  - `top_fire.jpg`
+  - `top_fire.jpg` (or fallback first sampled frame if no fire box is detected)
 
 JSON is compact/aggregate-only (no per-box timestamp dump), and only interval artifacts are saved.
 

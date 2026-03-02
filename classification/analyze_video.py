@@ -356,10 +356,16 @@ def analyze_video(args: argparse.Namespace) -> dict:
                     "top_fire_frame_score": -1.0,
                     "top_fire_frame_timestamp": None,
                     "top_fire_frame": None,
+                    "first_sample_frame": None,
+                    "first_sample_timestamp": None,
                 },
             )
 
             results = model.predict(source=frame, conf=args.conf, verbose=False, device=args.device)
+            if bucket["first_sample_frame"] is None:
+                bucket["first_sample_frame"] = frame.copy()
+                bucket["first_sample_timestamp"] = t
+
             frame_signals: list[FrameSignal] = []
 
             if results:
@@ -420,11 +426,16 @@ def analyze_video(args: argparse.Namespace) -> dict:
             interval_top_frame_path = interval_dir / "top_fire.jpg"
             cv2.imwrite(str(interval_top_frame_path), bucket["top_fire_frame"])
             interval_top_fire_frame_path = str(interval_top_frame_path)
+        elif bucket["first_sample_frame"] is not None:
+            # fallback evidence frame so OpenAI can still be called on uncertain/emergency intervals
+            interval_top_frame_path = interval_dir / "top_fire.jpg"
+            cv2.imwrite(str(interval_top_frame_path), bucket["first_sample_frame"])
+            interval_top_fire_frame_path = str(interval_top_frame_path)
 
         interval_summary = _summarize_stats(bucket["stats"])
         interval_summary["top_fire_frame"] = {
             "path": interval_top_fire_frame_path,
-            "timestamp_s": bucket["top_fire_frame_timestamp"],
+            "timestamp_s": bucket["top_fire_frame_timestamp"] if bucket["top_fire_frame_timestamp"] is not None else bucket["first_sample_timestamp"],
             "fire_frame_score": max(0.0, bucket["top_fire_frame_score"]),
         }
 

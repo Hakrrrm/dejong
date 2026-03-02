@@ -9,7 +9,7 @@ For each run it saves:
 - `results/timeline.json` (full decision timeline)
 - one folder per interval under `results/`, each containing:
   - `interval_metrics.json`
-  - `top_fire.jpg`
+  - `top_fire.jpg` (or fallback first sampled frame if no fire box is detected)
 
 No overall `video_metrics.json` and no overall top-fire image are written.
 No per-box detection dump is written to JSON.
