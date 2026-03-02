@@ -18,8 +18,8 @@ def _validate_response(payload: dict) -> dict:
 
     payload["context_score"] = max(0.0, min(1.0, float(payload["context_score"])))
     payload["confidence"] = max(0.0, min(1.0, float(payload["confidence"])))
-    if payload["scenario"] not in {"Emergency", "Hazard", "Elevated Risk"}:
-        payload["scenario"] = "Hazard"
+    if payload["scenario"] not in {"Emergency", "Hazard", "Elevated Risk", "No Fire Risk"}:
+        payload["scenario"] = "Elevated Risk"
     if not isinstance(payload["rationale"], list):
         payload["rationale"] = [str(payload["rationale"])]
 
@@ -38,7 +38,7 @@ def reason_with_openai(
     system = (
         "You are a fire-risk context reasoner. "
         "Return JSON only with keys: context_score (0..1), scenario, confidence (0..1), rationale (list of short strings). "
-        "Scenario must be one of Emergency, Hazard, Elevated Risk."
+        "Scenario must be one of Emergency, Hazard, Elevated Risk, No Fire Risk."
     )
 
     user = {

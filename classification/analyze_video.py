@@ -580,7 +580,7 @@ def analyze_video(args: argparse.Namespace) -> dict:
     args.json_out.write_text(json.dumps(metrics, indent=2))
 
     # timeline.json
-    scenario_counts = {"Emergency": 0, "Hazard": 0, "Elevated Risk": 0}
+    scenario_counts = {"Emergency": 0, "Hazard": 0, "Elevated Risk": 0, "No Fire Risk": 0}
     first_escalation = None
     max_risk = 0.0
     for row in timeline_entries:

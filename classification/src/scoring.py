@@ -32,6 +32,7 @@ class ScenarioThresholds:
     hazard_enter: float
     hazard_exit: float
     elevated_enter: float
+    no_fire_risk_max: float
 
 
 def is_uncertain(interval_metrics: dict, thresholds: UncertaintyThresholds) -> bool:
@@ -122,5 +123,8 @@ def assign_scenario_rank(final_score: float, previous_rank: str | None, threshol
 
     if final_score >= thresholds.elevated_enter:
         return "Elevated Risk"
+
+    if final_score <= thresholds.no_fire_risk_max:
+        return "No Fire Risk"
 
     return "Elevated Risk"
