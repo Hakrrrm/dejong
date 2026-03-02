@@ -33,6 +33,8 @@ class ScenarioThresholds:
     hazard_exit: float
     elevated_enter: float
     no_fire_risk_max: float
+    elevated_max_fire_conf: float
+    elevated_min_smoke_conf: float
 
 
 def is_uncertain(interval_metrics: dict, thresholds: UncertaintyThresholds) -> bool:
@@ -106,8 +108,15 @@ def compute_decision_confidence(
     return max(0.0, min(1.0, base))
 
 
-def assign_scenario_rank(final_score: float, previous_rank: str | None, thresholds: ScenarioThresholds) -> str:
+def assign_scenario_rank(
+    final_score: float,
+    previous_rank: str | None,
+    thresholds: ScenarioThresholds,
+    aggregate_relative_confidence: dict,
+) -> str:
     prev = previous_rank
+    fire = float(aggregate_relative_confidence.get("fire", 0.0))
+    smoke = float(aggregate_relative_confidence.get("smoke", 0.0))
 
     if prev == "Emergency":
         if final_score >= thresholds.emergency_exit:
@@ -121,10 +130,16 @@ def assign_scenario_rank(final_score: float, previous_rank: str | None, threshol
     elif final_score >= thresholds.hazard_enter:
         return "Hazard"
 
-    if final_score >= thresholds.elevated_enter:
-        return "Elevated Risk"
-
     if final_score <= thresholds.no_fire_risk_max:
         return "No Fire Risk"
 
-    return "Elevated Risk"
+    # Elevated Risk should mainly represent low-risk smoke-heavy scenes with little/no visible fire.
+    if (
+        final_score >= thresholds.elevated_enter
+        and fire <= thresholds.elevated_max_fire_conf
+        and smoke >= thresholds.elevated_min_smoke_conf
+    ):
+        return "Elevated Risk"
+
+    # Otherwise, default to Hazard for non-trivial risk, especially when fire signal is present.
+    return "Hazard"

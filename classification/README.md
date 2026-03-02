@@ -14,11 +14,11 @@ For each run it saves:
 
 No per-box detection dump is written to JSON.
 
-## OpenAI integration behavior (uncertain intervals only)
+## OpenAI integration behavior (uncertain intervals + local emergency verification)
 
-OpenAI is called only when an interval is considered uncertain by `is_uncertain(...)` rules from `classification/configs/scoring.yaml`. The uncertainty band has been widened so OpenAI is invoked more frequently as a tie-breaker.
+OpenAI is called when either: (1) an interval is uncertain by `is_uncertain(...)`, or (2) local-only scoring would classify the interval as `Emergency` (forced contextual verification).
 
-If uncertain and API key exists:
+If triggered (uncertain or local Emergency) and API key exists:
 - interval top-fire frame + metrics are sent to OpenAI.
 - OpenAI returns machine-readable:
   - `context_score`
@@ -26,16 +26,19 @@ If uncertain and API key exists:
   - `confidence`
   - `rationale`
 
-If uncertain and API key is missing:
+If triggered and API key is missing:
 - OpenAI is skipped.
 - output records local-only mode.
 
-If not uncertain:
+If not uncertain and not local Emergency:
 - OpenAI is skipped by design.
 
 ### Exact uncertainty trigger criteria (from `classification/configs/scoring.yaml`)
 
 An interval triggers OpenAI reasoning when **any one** of these is true:
+
+0. **Local emergency verification trigger**
+   - local-only scenario rank is `Emergency` before OpenAI blending
 
 1. **Danger index mid-band**
    - `0.20 <= dangerous_fire_index <= 0.90`
@@ -46,7 +49,7 @@ An interval triggers OpenAI reasoning when **any one** of these is true:
 4. **High flicker + moderate spread conflict**
    - `flicker_normalized >= 0.45` **and** `0.08 <= spread_normalized <= 0.75`
 
-If none of the above are true, OpenAI is not called for that interval.
+If none of the above are true, OpenAI is not called for that interval unless local-only rank is Emergency.
 
 ### Model selection for OpenAI
 
@@ -157,15 +160,15 @@ Then:
 Configured thresholds:
 
 - **Emergency** (uncontrolled growth / strongly dangerous)
-  - enter when `final_score >= 0.58`
-  - remain Emergency while `final_score >= 0.50`
+  - enter when `final_score >= 0.54`
+  - remain Emergency while `final_score >= 0.46`
 - **Hazard** (fire present and concerning, potentially controlled but significant)
-  - enter when `final_score >= 0.30` (and not Emergency)
-  - remain Hazard while `final_score >= 0.24`
+  - enter when `final_score >= 0.26` (and not Emergency)
+  - remain Hazard while `final_score >= 0.20`
 - **Elevated Risk** (smoke or weak fire evidence, low certainty of active/uncontrolled fire)
-  - when `0.10 <= final_score < 0.30` (unless hysteresis keeps Hazard/Emergency)
+  - for low-risk smoke-heavy scenes with minimal visible fire: `final_score >= 0.08`, `smoke >= 0.10`, and `fire <= 0.12`
 - **No Fire Risk**
-  - when `final_score <= 0.06`
+  - when `final_score <= 0.04`
 
 ## Console output behavior
 

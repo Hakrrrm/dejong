@@ -455,10 +455,13 @@ def analyze_video(args: argparse.Namespace) -> dict:
 
         local_score = compute_local_score(agg, risk, local_weights)
         uncertain = is_uncertain(interval_summary, uncertainty_cfg)
+        local_pre_openai_rank = assign_scenario_rank(local_score, prev_rank, scenario_thresholds, agg)
+        emergency_needs_verification = local_pre_openai_rank == "Emergency"
+        should_call_openai = uncertain or emergency_needs_verification
 
         openai_payload = {"used": False, "context_score": 0.0, "scenario": None, "confidence": 0.0, "rationale": [], "note": ""}
 
-        if uncertain and openai_enabled and interval_top_fire_frame_path is not None:
+        if should_call_openai and openai_enabled and interval_top_fire_frame_path is not None:
             model_name = cfg["openai"]["model"]
             if local_score >= float(cfg["openai"].get("high_risk_switch_threshold", 1.0)):
                 model_name = cfg["openai"].get("high_risk_model", model_name)
@@ -469,19 +472,23 @@ def analyze_video(args: argparse.Namespace) -> dict:
                 "location_type": args.location_type,
                 "start_s": meta.start_s,
                 "end_s": meta.end_s,
+                "openai_trigger_reason": "emergency_verification" if emergency_needs_verification else "uncertainty",
             }
             openai_result = reason_with_openai(
                 client=openai_client,
                 model=model_name,
                 image_path=Path(interval_top_fire_frame_path),
                 metadata=metadata,
-                metrics={"aggregate_relative_confidence": agg, "risk_numbers": risk},
+                metrics={"aggregate_relative_confidence": agg, "risk_numbers": risk, "local_pre_openai_rank": local_pre_openai_rank},
             )
             openai_payload = {"used": True, **openai_result}
-        elif uncertain and not openai_enabled:
-            openai_payload["note"] = "demo/local-only mode: OpenAI not used (missing key or --demo-mode)"
-        elif not uncertain:
-            openai_payload["note"] = "interval not uncertain; OpenAI skipped"
+        elif should_call_openai and not openai_enabled:
+            if emergency_needs_verification:
+                openai_payload["note"] = "local Emergency flagged; OpenAI verification skipped in demo/local-only mode"
+            else:
+                openai_payload["note"] = "uncertain interval; OpenAI skipped in demo/local-only mode"
+        else:
+            openai_payload["note"] = "interval not uncertain and not local-Emergency; OpenAI skipped"
 
         if openai_payload["used"]:
             context_weight = w_context
@@ -496,7 +503,7 @@ def analyze_video(args: argparse.Namespace) -> dict:
             risk_numbers=risk,
             openai_output_optional=openai_payload if openai_payload["used"] else None,
         )
-        scenario_rank = assign_scenario_rank(final_score, prev_rank, scenario_thresholds)
+        scenario_rank = assign_scenario_rank(final_score, prev_rank, scenario_thresholds, agg)
         prev_rank = scenario_rank
 
         decision = {

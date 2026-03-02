@@ -18,7 +18,7 @@ pip install -r requirements.txt
 > If `.env.example` is not visible in your GitHub file list, use `env.example` (same content).
 
 
-OpenAI is optional and only used for uncertain intervals. The uncertainty thresholds are intentionally widened further to call OpenAI more frequently for borderline clips.
+OpenAI is optional and used for uncertain intervals plus forced verification of any interval that would be locally classified as Emergency.
 
 1. Copy env template:
 
@@ -103,16 +103,16 @@ Configured in `classification/configs/scoring.yaml`:
 
 ## Exact OpenAI trigger criteria and score ranges
 
-OpenAI is only called for uncertain intervals. Uncertainty is triggered when any of these are true:
+OpenAI is called when intervals are uncertain OR locally Emergency. Uncertainty is triggered when any of these are true:
 - `0.20 <= dangerous_fire_index <= 0.90`
 - `abs(fire_vs_controlled_gap) < 0.24`
 - `smoke >= 0.08` and `controlled_fire >= 0.30`
 - `flicker_normalized >= 0.45` and `0.08 <= spread_normalized <= 0.75`
 
 Scenario rank thresholds (with hysteresis):
-- Emergency enter `>= 0.58`, stay while `>= 0.50`
-- Hazard enter `>= 0.30`, stay while `>= 0.24`
-- Elevated Risk mainly for low-certainty smoke/weak-fire evidence (`0.10..0.30`), and `No Fire Risk` for very low scores (`<= 0.06`)
+- Emergency enter `>= 0.54`, stay while `>= 0.46`
+- Hazard enter `>= 0.26`, stay while `>= 0.20`
+- Elevated Risk for low-risk smoke-heavy scenes with minimal visible fire (`score >= 0.08`, `smoke >= 0.10`, `fire <= 0.12`); No Fire Risk for very low scores (`<= 0.04`)
 
 ## Console output behavior
 
